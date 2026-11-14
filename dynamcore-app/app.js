@@ -1,0 +1,726 @@
+'use strict';
+/* DynamCore – user interface. Data: exercises.js, engine.js, i18n.js. Everything is stored on this phone only. */
+
+const VERSION = '1.0';
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const clone = o => JSON.parse(JSON.stringify(o));
+
+/* ---------- storage ---------- */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('dc:' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('dc:' + k, JSON.stringify(v)); } catch (e) { } }
+};
+let P = store.get('profile', null);
+let S = Object.assign({ weekOv: {}, logs: [], tests: [], suggest: null, hideInstall: false }, store.get('state', {}));
+const saveAll = () => { store.set('profile', P); store.set('state', S); };
+try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) { }
+
+/* ---------- language ---------- */
+const lang = () => (P && P.lang) || (UI.wz && UI.wz.d.lang) || 'nl';
+function t(k, v) {
+  let s = (I18N[lang()] && I18N[lang()][k]) ?? I18N.nl[k] ?? k;
+  if (v && typeof s === 'string') for (const x in v) s = s.split(`{${x}}`).join(v[x]);
+  return s;
+}
+const exName = id => EXMAP[id] ? EXMAP[id].n[lang()] : id;
+function fmtDose(d) {
+  const side = d.side ? t('per_side') : '';
+  if (d.k === 'r') return `${d.n}${side}`;
+  if (d.k === 't') return (d.n >= 60 && d.n % 60 === 0 ? `${d.n / 60} ${t('min')}` : `${d.n} ${t('sec')}`) + side;
+  return `${d.n} ${t('breaths')}`;
+}
+const dayName = (i, full) => (full ? t('daysF') : t('days'))[i];
+
+/* ---------- UI state ---------- */
+const UI = { viewWeek: null, sess: null, wz: null, libCat: 'all', libQ: '', libMine: true, testW: null, sw: null, resetArmed: false, extraType: 'CORE', settingsD: null };
+const today = () => DN.today();
+const curWeek = () => P ? planWeekOf(P, today()) : 1;
+const RPE_TARGET = { CORE: '5–7', LEG: '5–7', MOB: '2–4', ACT: '3–5', REC: '1–3', GROUP: '' };
+document.documentElement.lang = lang();
+
+/* ---------- icons ---------- */
+const IC = {
+  left: '<svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>',
+  right: '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
+  gear: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>',
+  check: '<svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>',
+  swap: '<svg viewBox="0 0 24 24"><path d="M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/></svg>',
+  play: '<svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg>',
+  plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  sound: '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg>',
+  mute: '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>',
+  watch: '⏱'
+};
+
+/* ---------- small renderers ---------- */
+const chip = (act, attrs, on, label) => `<button type="button" class="chip" data-act="${act}" ${attrs} aria-pressed="${!!on}">${label}</button>`;
+const typeColor = ty => `var(--t-${ty})`;
+const lvlDots = l => `<span class="dots" aria-label="${t('level')} ${l}">${[1, 2, 3].map(i => `<i class="${i <= l ? 'on' : ''}"></i>`).join('')}</span>`;
+function topbar(title, opts = {}) {
+  return `<header class="topbar">${opts.back ? `<button class="iconbtn" data-act="back" aria-label="${t('back')}">${IC.left}</button>` : `<picture class="brand"><source srcset="icons/logo-light.png" media="(prefers-color-scheme: dark)"><img src="icons/logo-dark.png" alt="DynamVic"></picture>`}
+    <h1>${esc(title)}</h1>${opts.gear !== false ? `<button class="iconbtn" data-act="go" data-to="settings" aria-label="${t('settings')}">${IC.gear}</button>` : '<span class="sp"></span>'}</header>`;
+}
+
+/* ---------- profile defaults & fields (shared by wizard and settings) ---------- */
+function defaultProfile() {
+  const td = today(), mon = DN.dow(td) === 0 ? td : DN.monday(td) + 7;
+  return { lang: 'nl', accepted: false, name: '', rider: ['road'], complaints: [], eq: [], perWeek: 3, days: [0, 3, 5], group: { on: false, day: 1, focus: ['legs'] },
+    hardBike: [], dur: 30, start: DN.iso(mon), rk: 4, races: [], icsTime: '19:00', level: null, adj: {}, blocked: [], voice: true, travelAlways: false, phaseOverride: 'auto', paused: null };
+}
+const OPT = {
+  rider: ['road', 'crit', 'gravel', 'mtb', 'tri'],
+  complaints: ['back', 'knee', 'shoulder', 'neck', 'hip'],
+  eq: ['roller', 'ball', 'miniband', 'band', 'db', 'kb', 'swiss', 'bench', 'gym'],
+  focus: ['strength', 'legs', 'core', 'mobility', 'back']
+};
+function field(D, name) {
+  const multi = (list, sel, lab) => `<div class="chips">${list.map(v => chip('fchip', `data-f="${name}" data-v="${v}"`, sel.includes(v), lab(v))).join('')}</div>`;
+  const single = (list, val, lab, f = name) => `<div class="chips">${list.map(v => chip('fset', `data-f="${f}" data-v="${v}"`, String(val) === String(v), lab(v))).join('')}</div>`;
+  switch (name) {
+    case 'lang': return `<div class="fld"><span class="lbl">${t('wz_lang')}</span>${single(['nl', 'en'], D.lang, v => v === 'nl' ? 'Nederlands' : 'English')}</div>`;
+    case 'name': return `<label class="fld"><span class="lbl">${t('wz_name')} <small>(${t('optional')})</small></span><input id="f-name" data-field="name" value="${esc(D.name)}" autocomplete="given-name"></label>`;
+    case 'rider': return `<div class="fld"><span class="lbl">${t('wz_rider')}</span>${multi(OPT.rider, D.rider, v => t('rider_' + v))}</div>`;
+    case 'complaints': return `<div class="fld"><span class="lbl">${t('wz_complaints')}</span>${multi(OPT.complaints, D.complaints, v => t('cmp_' + v))}<small class="muted">${t('wz_complaints_note')}</small></div>`;
+    case 'eq': return `<div class="fld"><span class="lbl">${t('wz_eq')}</span>${multi(OPT.eq, D.eq, v => t('eq_' + v))}<small class="muted">${t('eq_none_note')}</small></div>`;
+    case 'perWeek': return `<div class="fld"><span class="lbl">${t('wz_per_week')}</span>${single([2, 3, 4, 5], D.perWeek, v => v)}</div>`;
+    case 'days': {
+      const need = D.perWeek - (D.group.on ? 1 : 0), have = D.days.filter(d => !(D.group.on && +d === +D.group.day)).length;
+      return `<div class="fld"><span class="lbl">${t('wz_days')}</span>${multi([0, 1, 2, 3, 4, 5, 6], D.days, v => dayName(v))}${have < need ? `<small class="warn">${t('need_days', { n: need })}</small>` : ''}</div>`;
+    }
+    case 'group': return `<div class="fld"><span class="lbl">${t('wz_group')}</span>${single(['yes', 'no'], D.group.on ? 'yes' : 'no', v => t(v), 'group.on')}
+      ${D.group.on ? `<span class="lbl sub">${t('wz_group_day')}</span>${single([0, 1, 2, 3, 4, 5, 6], D.group.day, v => dayName(v), 'group.day')}
+      <span class="lbl sub">${t('wz_group_focus')}</span><div class="chips">${OPT.focus.map(v => chip('fchip', `data-f="group.focus" data-v="${v}"`, D.group.focus.includes(v), t('focus_' + v))).join('')}</div>` : ''}</div>`;
+    case 'hardBike': return `<div class="fld"><span class="lbl">${t('wz_hardbike')} <small>(${t('optional')})</small></span>${multi([0, 1, 2, 3, 4, 5, 6], D.hardBike, v => dayName(v))}<small class="muted">${t('wz_hardbike_note')}</small></div>`;
+    case 'dur': return `<div class="fld"><span class="lbl">${t('wz_dur')}</span>${single([15, 20, 30, 45], D.dur, v => `${v} ${t('min')}`)}</div>`;
+    case 'start': return `<label class="fld"><span class="lbl">${t('wz_start')}</span><input type="date" id="f-start" data-field="start" value="${D.start}"></label>`;
+    case 'rk': return `<div class="fld"><span class="lbl">${t('wz_rk')}</span>${single([3, 4, 5, 0], D.rk, v => v ? t('wz_rk_every', { n: v }) : t('wz_rk_none'))}</div>`;
+    case 'races': return `<div class="fld"><span class="lbl">${t('wz_races')} <small>(${t('optional')})</small></span>
+      <div class="races">${D.races.map((r, i) => `<div class="race"><b>${DN.fmtY(DN.parse(r.d))}</b><span>${esc(r.n)}</span><button class="iconbtn sm" data-act="rmrace" data-i="${i}" aria-label="x">${IC.x}</button></div>`).join('')}</div>
+      <div class="raceadd"><input type="date" id="race-d" aria-label="${t('wz_race_date')}"><input id="race-n" placeholder="${t('wz_race_name')}" aria-label="${t('wz_race_name')}"><button class="btn ghost" data-act="addrace">${IC.plus}<span>${t('wz_add_race')}</span></button></div>
+      <small class="muted">${t('wz_races_note')}</small></div>`;
+    case 'icsTime': return `<label class="fld"><span class="lbl">${t('wz_ics_time')}</span><input type="time" id="f-ics" data-field="icsTime" value="${D.icsTime}"></label>`;
+  }
+  return '';
+}
+function setField(D, f, v, multi) {
+  const path = f.split('.');
+  let o = D; for (let i = 0; i < path.length - 1; i++) o = o[path[i]];
+  const k = path[path.length - 1];
+  const num = ['perWeek', 'dur', 'rk', 'day', 'days', 'hardBike'].includes(k);
+  const val = num ? +v : (k === 'on' ? v === 'yes' : v);
+  if (multi) { const a = o[k]; const i = a.map(String).indexOf(String(val)); if (i >= 0) a.splice(i, 1); else a.push(val); a.sort?.(); }
+  else o[k] = val;
+  if (k === 'lang') document.documentElement.lang = val;
+}
+
+/* ---------- wizard ---------- */
+const WZ_STEPS = [
+  { title: 'wz_title', fields: ['lang'], intro: true },
+  { title: 'wz_s1', fields: ['name', 'rider', 'complaints'] },
+  { title: 'wz_s2', fields: ['eq'] },
+  { title: 'wz_s3', fields: ['perWeek', 'group', 'days', 'hardBike', 'dur'] },
+  { title: 'wz_s4', fields: ['start', 'rk', 'races', 'icsTime'] },
+  { title: 'wz_s5', level: true },
+  { title: 'wz_s6', summary: true }
+];
+function vWizard() {
+  if (!UI.wz) UI.wz = { step: 0, d: defaultProfile(), testMode: null, test: {} };
+  const { step, d } = UI.wz, st = WZ_STEPS[step];
+  let body = '';
+  if (st.intro) body = `<picture class="logo-big"><source srcset="icons/logo-light.png" media="(prefers-color-scheme: dark)"><img src="icons/logo-dark.png" alt="DynamVic Cycling coach"></picture>
+    <p class="lead">${t('wz_lead')}</p>${field(d, 'lang')}
+    <div class="card notice"><h3>${t('wz_disclaimer_title')}</h3><p>${t('disclaimer')}</p>
+    <label class="check"><input type="checkbox" id="f-accept" data-field="accepted" ${d.accepted ? 'checked' : ''}><span>${t('wz_accept')}</span></label></div>`;
+  else if (st.level) {
+    body = `<p>${t('wz_level_lead')}</p><div class="chips col">${chip('wzlevel', 'data-v="now"', UI.wz.testMode === 'now', t('wz_test_now'))}${chip('wzlevel', 'data-v="later"', UI.wz.testMode === 'later', t('wz_test_later'))}</div>`;
+    if (UI.wz.testMode === 'now') {
+      const l = levelFromTest(UI.wz.test);
+      body += `<div class="card">${testForm(UI.wz.test)}</div>${l ? `<div class="card ok"><b>${t('wz_level_result', { l: `${l} · ${t('lvl_' + l)}` })}</b></div>` : ''}`;
+    }
+  } else if (st.summary) body = summaryCard(d);
+  else body = st.fields.map(f => field(d, f)).join('');
+  const canNext = step === 0 ? d.accepted : step === 5 ? (UI.wz.testMode === 'later' || (UI.wz.testMode === 'now' && levelFromTest(UI.wz.test))) : true;
+  return `<div class="wz"><div class="wzhead"><span class="eyebrow">${t('wz_step', { a: step + 1, b: WZ_STEPS.length })}</span><div class="wzbar"><i style="width:${(step + 1) / WZ_STEPS.length * 100}%"></i></div></div>
+    <h1 class="h1">${t(st.title)}</h1>${body}
+    <div class="wznav">${step ? `<button class="btn quiet" data-act="wzback">${t('back')}</button>` : '<span></span>'}
+    <button class="btn" data-act="${st.summary ? 'wzfinish' : 'wznext'}" ${canNext ? '' : 'disabled'}>${st.summary ? t('wz_go') : t('next')}</button></div></div>`;
+}
+function summaryCard(d) {
+  const lv = d.level || (UI.wz && UI.wz.testMode === 'now' ? levelFromTest(UI.wz.test) : 1) || 1;
+  const rows = [
+    [t('level'), `${lv} · ${t('lvl_' + lv)}`],
+    [t('wz_per_week'), d.perWeek + (d.group.on ? ` (${t('type_GROUP')} ${dayName(d.group.day)})` : '')],
+    [t('wz_days'), d.days.map(x => dayName(x)).join(', ')],
+    [t('wz_dur'), `${d.dur} ${t('min')}`],
+    [t('wz_start'), DN.fmtY(DN.parse(d.start))],
+    [t('wz_rk'), d.rk ? t('wz_rk_every', { n: d.rk }) : t('wz_rk_none')],
+    [t('equipment'), d.eq.length ? d.eq.map(e => t('eq_' + e)).join(', ') : '–'],
+    [t('wz_complaints'), d.complaints.length ? d.complaints.map(c => t('cmp_' + c)).join(', ') : '–'],
+    [t('wz_races'), d.races.length ? d.races.map(r => `${esc(r.n || '')} ${DN.fmt(DN.parse(r.d))}`).join(', ') : '–']
+  ];
+  return `<div class="card"><h3>${t('wz_summary')}</h3><dl class="kv stack">${rows.map(r => `<dt>${r[0]}</dt><dd>${r[1]}</dd>`).join('')}</dl></div>`;
+}
+
+/* ---------- test form (wizard + progress) ---------- */
+const TFIELDS = [
+  { k: 'T1', lr: true, unit: 's', sw: true }, { k: 'T2', lr: false, unit: 'cm' }, { k: 'T3', lr: true, unit: 'reps' },
+  { k: 'T4', lr: false, unit: 's', sw: true }, { k: 'T5', lr: true, unit: 's', sw: true }
+];
+function testForm(vals) {
+  return `<p class="small muted">${t('test_hint')}</p><div class="tform">${TFIELDS.map(f => {
+    const inp = (key, lab) => `<div class="tin">${lab ? `<span>${lab}</span>` : ''}<input id="t-${key}" data-tk="${key}" inputmode="${f.unit === 'cm' ? 'text' : 'numeric'}" value="${vals[key] ?? ''}" aria-label="${t(f.k.toLowerCase())} ${lab || ''}"><span>${f.unit === 'reps' ? t('reps') : f.unit}</span>${f.sw ? `<button type="button" class="swb${UI.sw && UI.sw.f === key ? ' on' : ''}" data-act="sw" data-f="${key}" aria-label="stopwatch">${UI.sw && UI.sw.f === key ? '■' : IC.watch}</button>` : ''}</div>`;
+    return `<div class="tf"><b>${f.k} · ${t(f.k.toLowerCase())}</b><small class="muted">${t(f.k.toLowerCase() + 's')}</small><div class="tins">${f.lr ? inp(f.k + 'L', t('left')) + inp(f.k + 'R', t('right')) : inp(f.k, '')}</div></div>`;
+  }).join('')}</div>`;
+}
+
+/* ---------- week ---------- */
+function isDone(w, key) { return S.logs.some(l => l.w === w && l.key === key); }
+function slotTitle(s) { return s.type === 'GROUP' ? `${t('type_GROUP')}${s.focus && s.focus.length ? ' · ' + s.focus.map(f => t('focus_' + f)).join(', ') : ''}` : t('type_' + s.type); }
+function vWeek() {
+  if (!P) return vWizard();
+  const td = today(), cw = curWeek();
+  if (UI.viewWeek == null) UI.viewWeek = Math.max(1, cw);
+  const w = UI.viewWeek, plan = weekPlan(P, S, w);
+  let top = topbar(P.name ? `${P.name}` : 'DynamCore');
+  if (P.paused) return top + `<div class="card"><p>${t('paused', { d: DN.fmtY(P.paused) })}</p><button class="btn" data-act="resume">${t('resume')}</button></div>`;
+  const pills = `<span class="pill ph-${plan.phase}">${t('phase_' + plan.phase)}</span>${plan.rec ? `<span class="pill rec">${t('recovery_week')}</span>` : ''}`;
+  let html = top + `<section class="weekhead">
+    <button class="iconbtn" data-act="wk" data-d="-1" aria-label="-1" ${w <= 1 ? 'disabled' : ''}>${IC.left}</button>
+    <div><div class="big">${t('week_n', { n: w })}</div><div class="sub">${DN.fmt(plan.monday)} – ${DN.fmt(plan.monday + 6)} ${pills}</div></div>
+    <button class="iconbtn" data-act="wk" data-d="1" aria-label="+1">${IC.right}</button></section>`;
+  if (cw < 1 && w === 1) html += `<div class="card"><p>${t('not_started', { d: DN.fmtY(startNum(P)) })}</p></div>`;
+  if (S.suggest && S.suggest !== P.level) html += `<div class="card ok"><p>${t('suggest_level', { l: S.suggest, name: t('lvl_' + S.suggest) })}</p><div class="row"><button class="btn" data-act="acceptlvl">${t('accept')}</button><button class="btn quiet" data-act="declinelvl">${t('decline')}</button></div></div>`;
+  const testSlot = plan.slots.find(s => s.test);
+  if (testSlot) html += `<div class="card"><p>${t('test_due', { d: dayName(testSlot.day, true) })} <a href="#progress" data-act="gotest" data-w="${w}">${t('go_test')}</a></p></div>`;
+  if (plan.dropped) html += `<div class="card warnc"><p>${t('dropped_warn', { n: plan.dropped })}</p></div>`;
+  const tv = !!plan.travel;
+  html += `<div class="row">${chip('travel', `data-w="${w}"`, tv, t('travel_mode'))}</div>${tv ? `<p class="small muted">${t('travel_on')}</p>` : ''}`;
+  // days
+  let rows = '';
+  for (let d = 0; d < 7; d++) {
+    const dn = plan.monday + d, isToday = dn === td;
+    const ss = plan.slots.filter(s => s.day === d);
+    const items = ss.map(s => slotCard(plan, s, dn)).join('');
+    rows += `<div class="day${isToday ? ' today' : ''}"><div class="dd"><b>${dayName(d)}</b><small>${DN.fmt(dn)}</small></div><div class="dslots">${items || `<span class="restd">${t('rest_day')}</span>`}</div></div>`;
+  }
+  const total = plan.slots.filter(s => !s.skipped).length, done = plan.slots.filter(s => isDone(w, s.key)).length;
+  html += `<section class="days">${rows}</section>
+    <div class="prog"><div class="lbl"><span>${t('week_progress', { a: done, b: total })}</span><span>${streakText()}</span></div><div class="bar"><i style="width:${total ? done / total * 100 : 0}%"></i></div></div>
+    ${installCard()}<p class="small muted disc">${t('disclaimer')}</p>`;
+  return html;
+}
+function slotCard(plan, s, dn) {
+  const w = plan.w, done = isDone(w, s.key), td = today();
+  const missed = !done && !s.skipped && dn < td;
+  let status = done ? `<span class="st ok">${IC.check} ${t('status_done')}${rpeOf(w, s.key) != null ? ` · RPE ${rpeOf(w, s.key)}` : ''}</span>` : s.skipped ? `<span class="st">${t('status_skipped')}</span>` : missed ? `<span class="st bad">${t('status_missed')}</span>` : '';
+  if (s.type === 'GROUP') {
+    return `<div class="slot" style="--tc:${typeColor('GROUP')}"><div class="si"><span class="tk">${t('typeS_GROUP')}</span><b>${esc(slotTitle(s))}</b>${status}
+      <div class="row sm">${done ? '' : `<button class="btn tiny" data-act="markgroup" data-w="${w}">${t('mark_done')}</button>`}<button class="btn tiny quiet" data-act="groupedit" data-w="${w}">${t('group_edit')}</button></div></div></div>`;
+  }
+  const ses = buildSession(P, S, plan, s);
+  const acts = missed ? `<div class="row sm"><button class="btn tiny quiet" data-act="movesheet" data-w="${w}" data-k="${s.key}">${t('move')}</button><button class="btn tiny quiet" data-act="skip" data-w="${w}" data-k="${s.key}">${t('skip')}</button></div>`
+    : s.skipped ? `<div class="row sm"><button class="btn tiny quiet" data-act="unskip" data-w="${w}" data-k="${s.key}">${t('undo_skip')}</button></div>` : '';
+  return `<div class="slot" style="--tc:${typeColor(s.type)}"><button class="si" data-act="open" data-w="${w}" data-k="${s.key}">
+    <span class="tk">${t('typeS_' + s.type)}${s.test ? ' + TEST' : ''}</span><b>${t('type_' + s.type)}</b><span class="meta">${t('est', { n: ses.est })} · ${t('style_' + ses.style)} · RPE ${RPE_TARGET[s.type]}</span>${status}</button>${acts}</div>`;
+}
+const rpeOf = (w, key) => { const l = S.logs.filter(x => x.w === w && x.key === key).pop(); return l ? l.rpe : null; };
+function streakText() {
+  let n = 0;
+  for (let w = curWeek() - 1; w >= 1; w--) {
+    const pl = weekPlan(P, S, w); const need = pl.slots.filter(s => !s.skipped);
+    if (need.length && need.every(s => isDone(w, s.key))) n++; else break;
+  }
+  return n ? t('streak', { n }) : '';
+}
+
+/* ---------- session detail ---------- */
+function resolveSession() {
+  const c = UI.sess; if (!c) return null;
+  if (c.routine) {
+    const w = Math.max(1, curWeek());
+    const plan = weekPlan(P, S, w);
+    const type = c.routine === 'TRAVEL' ? 'CORE' : c.routine === 'EXTRA' ? c.type : c.routine;
+    const slot = { type, key: 'R-' + c.routine, idx: 7 };
+    const p2 = c.routine === 'EXTRA' ? plan : { ...plan, rec: false };
+    const ses = buildSession(P, { weekOv: {} }, p2, slot, { dur: c.dur || (c.routine === 'TRAVEL' ? 20 : P.dur), travel: c.routine === 'TRAVEL' ? true : undefined });
+    return { plan, slot, ses, routine: c.routine };
+  }
+  const plan = weekPlan(P, S, c.w); const slot = plan.slots.find(s => s.key === c.key);
+  if (!slot) return null;
+  return { plan, slot, ses: buildSession(P, S, plan, slot), routine: null };
+}
+function vSession() {
+  const r = resolveSession(); if (!r) { location.hash = '#week'; return ''; }
+  const { plan, slot, ses } = r;
+  const title = r.routine === 'TRAVEL' ? t('r_travel') : t('type_' + ses.type);
+  let html = topbar(title, { back: true, gear: false });
+  const durs = ses.type === 'ACT' || ses.type === 'REC' ? [] : [15, 20, 30, 45];
+  html += `<section class="sesshead" style="--tc:${typeColor(ses.type)}">
+    <span class="tk">${r.routine ? t('tab_routines') : `${t('week_n', { n: plan.w })} · ${dayName(slot.day, true)} ${DN.fmt(plan.monday + slot.day)}`}</span>
+    <div class="meta"><b>${t('est', { n: ses.est })}</b> · ${t('style_' + ses.style)} · ${t('level')} ${lvlDots(ses.level)} · RPE ${RPE_TARGET[ses.type]}</div>
+    ${durs.length ? `<div class="chips">${durs.map(d => chip('dur', `data-v="${d}"`, d === ses.dur, `${d} ${t('min')}`)).join('')}</div>` : ''}</section>`;
+  if (ses.test) html += `<div class="card"><p><b>${t('with_test')}</b> <a href="#progress" data-act="gotest" data-w="${plan.w}">${t('go_test')}</a></p></div>`;
+  if (ses.travel) html += `<p class="small muted">${t('travel_on')}</p>`;
+  html += ses.blocks.map(b => `<section class="blk"><div class="bh"><span>${t('blk_' + b.k)}</span>${b.rounds > 1 || b.rest ? `<span class="muted">${b.rounds > 1 ? t('rounds', { n: b.rounds }) : ''}${b.rest ? ' · ' + t('rest_s', { n: b.rest }) : ''}</span>` : ''}</div>
+    <ol class="ex">${b.items.map(i => `<li><button class="exr" data-act="exinfo" data-id="${i.id}"><span class="n">${esc(exName(i.id))}</span><span class="dose">${fmtDose(i.dose)}</span></button>${r.routine ? '' : `<button class="iconbtn sm" data-act="swapsheet" data-id="${i.id}" data-orig="${i.orig}" aria-label="${t('swap')}">${IC.swap}</button>`}</li>`).join('')}</ol></section>`).join('');
+  const done = !r.routine && isDone(plan.w, slot.key);
+  html += `<div class="stick"><button class="btn wide big" data-act="guided">${IC.play}<span>${t('start_guided')}</span></button>
+    ${done ? `<p class="center ok">${IC.check} ${t('status_done')}</p>` : `<button class="btn quiet wide" data-act="rpesheet">${t('mark_done')}</button>`}</div>
+    <section class="card"><h3>${t('intervals_hdr')}</h3><p class="small muted">${t('intervals_note')}</p><div class="row"><button class="btn ghost" data-act="copyint">${t('copy_intervals')}</button><span class="msg" id="cmsg"></span></div><pre class="itxt" id="itxt">${esc(intervalsText(r))}</pre></section>`;
+  return html;
+}
+function intervalsText(r) {
+  const { ses, plan, slot } = r, L = [];
+  L.push(`DynamCore – ${t('type_' + ses.type)}${r.routine ? '' : ` | ${t('week_n', { n: plan.w })} ${dayName(slot.day)}`} | ${t('est', { n: ses.est })} | RPE ${RPE_TARGET[ses.type]}`);
+  ses.blocks.forEach(b => {
+    L.push(`${t('blk_' + b.k)}${b.rounds > 1 ? ' – ' + t('rounds', { n: b.rounds }) : ''}${b.rest ? ', ' + t('rest_s', { n: b.rest }) : ''}:`);
+    b.items.forEach(i => L.push(` - ${exName(i.id)}  ${fmtDose(i.dose)}`));
+  });
+  L.push(lang() === 'nl' ? 'Na de sessie: RPE (0–10) + commentaar.' : 'After the session: RPE (0–10) + comment.');
+  return L.join('\n');
+}
+
+/* ---------- plan ---------- */
+function vPlan() {
+  const cw = Math.max(1, curWeek());
+  let html = topbar(t('plan_title'));
+  html += `<section class="card">${field(UI.planD || (UI.planD = P), 'races')}${P.races.length ? '' : `<p class="small muted">${t('no_races')}</p>`}</section>`;
+  let rows = '';
+  for (let w = Math.max(1, cw - 1); w < cw + 12; w++) {
+    const pl = weekPlan(P, S, w);
+    rows += `<div class="pw${w === cw ? ' cur' : ''}${pl.rec ? ' rec' : ''}"><button class="pwn" data-act="gow" data-w="${w}"><b>${w}</b><small>${DN.fmt(pl.monday)}</small></button>
+      <div class="pwm"><span class="pill ph-${pl.phase}">${t('phase_' + pl.phase)}</span><div class="pws">${pl.slots.map(s => `<span class="sc${isDone(w, s.key) ? ' done' : ''}${s.skipped ? ' skip' : ''}" style="--tc:${typeColor(s.type)}">${dayName(s.day)} · ${t('typeS_' + s.type)}${s.test ? ' + T' : ''}</span>`).join('')}</div></div>
+      <button class="chip sm" data-act="togrec" data-w="${w}" aria-pressed="${pl.rec}" title="${t('toggle_rec')}">${t('recovery_week').split(' ')[0]}</button></div>`;
+  }
+  html += `<section class="plist">${rows}</section>
+    <section class="card"><h3>${t('ics_export')}</h3><div class="row">${[4, 8, 12].map(n => `<button class="btn ghost" data-act="ics" data-n="${n}">${t('ics_weeks', { n })}</button>`).join('')}</div><p class="small muted">${t('ics_note')}</p></section>`;
+  return html;
+}
+
+/* ---------- routines ---------- */
+function vRoutines() {
+  const card = (k, title, d, extra = '') => `<div class="card rt"><div><h3>${title}</h3><p class="small muted">${d}</p>${extra}</div><button class="btn" data-act="routine" data-r="${k}">${t('start')}</button></div>`;
+  return topbar(t('routines_title')) + `<section class="rts">
+    ${card('ACT', t('r_act'), t('r_act_d'))}${card('REC', t('r_rec'), t('r_rec_d'))}${card('TRAVEL', t('r_travel'), t('r_travel_d'))}
+    ${card('EXTRA', t('r_extra'), t('r_extra_d'), `<div class="chips">${['CORE', 'LEG', 'MOB'].map(x => chip('extratype', `data-v="${x}"`, UI.extraType === x, t('type_' + x))).join('')}</div>`)}
+    <div class="card rt"><div><h3>${t('r_test')}</h3><p class="small muted">${t('r_test_d')}</p></div><button class="btn ghost" data-act="go" data-to="progress">${t('go_test')}</button></div></section>`;
+}
+
+/* ---------- progress ---------- */
+function vProgress() {
+  const cw = Math.max(1, curWeek());
+  if (UI.testW == null) { let w = cw; while (w > 1 && !isRecovery(P, S, w)) w--; UI.testW = w; }
+  const rec = S.tests.find(x => x.w === UI.testW) || { w: UI.testW };
+  const lv = P.level || 1;
+  let html = topbar(t('progress_title'));
+  html += `<section class="card"><div class="row between"><div><span class="eyebrow">${t('cur_level')}</span><div class="lvl">${lv} · ${t('lvl_' + lv)} ${lvlDots(lv)}</div></div></div>
+    <p class="small muted">${t('adj_now')}: ${['CORE', 'LEG', 'MOB'].map(x => `${t('typeS_' + x)} ${((P.adj || {})[x] || 0) > 0 ? '+' : ''}${(P.adj || {})[x] || 0}`).join(' · ')}</p></section>`;
+  html += `<section class="card"><h3>${t('new_test', { n: UI.testW })}</h3>${testForm(rec)}<p class="msg" id="tmsg"></p></section>`;
+  html += `<h2 class="h2">${t('progress_title')}</h2>` + ['T1', 'T2', 'T3', 'T4', 'T5'].map(k => `<section class="card"><h3>${k} · ${t(k.toLowerCase())}</h3>${testChart(k)}</section>`).join('');
+  // completion per week
+  const bars = []; for (let w = Math.max(1, cw - 7); w <= cw; w++) { const pl = weekPlan(P, S, w); const need = pl.slots.filter(s => !s.skipped).length; const d = pl.slots.filter(s => isDone(w, s.key)).length; bars.push({ w, need, d }); }
+  html += `<section class="card"><h3>${t('weeks_done')}</h3><div class="wbars">${bars.map(b => `<div class="wb"><div class="wbc"><i style="height:${b.need ? b.d / b.need * 100 : 0}%"></i></div><small>${b.w}</small><small>${b.d}/${b.need}</small></div>`).join('')}</div></section>`;
+  const logs = S.logs.slice(-15).reverse();
+  html += `<section class="card"><h3>${t('rpe_log')}</h3>${logs.length ? `<ul class="logs">${logs.map(l => `<li><span>${DN.fmt(l.d)}</span><span>${t('typeS_' + l.type)}</span><span>${l.rpe != null ? 'RPE ' + l.rpe : '–'}</span></li>`).join('')}</ul>` : `<p class="small muted">${t('no_logs')}</p>`}</section>`;
+  return html;
+}
+function testVal(rec, k, side) { const v = rec[k + (side || '')]; return v === undefined || v === '' || v === null ? null : +v; }
+function testChart(k) {
+  const f = TFIELDS.find(x => x.k === k);
+  const recs = [...S.tests].sort((a, b) => a.w - b.w);
+  const series = f.lr ? [['L', 'var(--accent)'], ['R', 'var(--t-LEG)']] : [['', 'var(--accent)']];
+  const pts = series.map(([sd]) => recs.map(r => [r.w, testVal(r, k, sd)]).filter(p => p[1] != null));
+  const vals = pts.flat().map(p => p[1]);
+  if (!vals.length) return `<p class="small muted">–</p>`;
+  const W = 320, H = 150, Lm = 36, Rm = 12, T = 16, B = 24;
+  const ws = recs.map(r => r.w); const w0 = Math.min(...ws), w1 = Math.max(...ws, w0 + 1);
+  let lo = Math.min(0, ...vals), hi = Math.max(0, ...vals); if (hi === lo) hi = lo + 1; const pad = (hi - lo) * 0.18; hi += pad; if (lo < 0) lo -= pad;
+  const x = w => Lm + (w - w0) / (w1 - w0) * (W - Lm - Rm), y = v => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  let g = [lo, (lo + hi) / 2, hi].map(v => Math.round(v)).map(v => `<line x1="${Lm}" x2="${W - Rm}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${Lm - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${v}</text>`).join('');
+  g += [...new Set(ws)].map(w => `<text x="${x(w)}" y="${H - 6}" text-anchor="middle" font-size="11" fill="var(--muted)">${lang() === 'nl' ? 'wk' : 'wk'} ${w}</text>`).join('');
+  pts.forEach((ps, si) => {
+    const col = series[si][1];
+    if (ps.length > 1) g += `<polyline fill="none" stroke="${col}" stroke-width="2.5" points="${ps.map(p => `${x(p[0])},${y(p[1])}`).join(' ')}"/>`;
+    ps.forEach(p => { const other = pts[1 - si] && pts[1 - si].find(q => q[0] === p[0]); const above = !other || p[1] > other[1] || (p[1] === other[1] && si === 0);
+      g += `<circle cx="${x(p[0])}" cy="${y(p[1])}" r="4" fill="${col}"/><text x="${x(p[0])}" y="${y(p[1]) + (above ? -8 : 16)}" text-anchor="middle" font-size="11" font-weight="600" fill="${col}">${p[1]}</text>`; });
+  });
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${k}">${g}</svg>${f.lr ? `<div class="legend"><span><i style="background:var(--accent)"></i>${t('left')}</span><span><i style="background:var(--t-LEG)"></i>${t('right')}</span></div>` : ''}`;
+}
+
+/* ---------- library ---------- */
+function libList() {
+  const q = UI.libQ.trim().toLowerCase(), ctx = makeCtx({ ...P, complaints: [], blocked: [] }, false);
+  const list = EX.filter(e => (UI.libCat === 'all' || CAT_OF(e.pat) === UI.libCat) && (!UI.libMine || !e.eq.length || e.eq.some(x => ctx.eq.has(x)))
+    && (!q || `${e.id} ${e.n.nl} ${e.n.en} ${e.why[lang()]}`.toLowerCase().includes(q)));
+  return list.length ? list.map(e => `<div class="card">${exCard(e)}</div>`).join('') : `<p class="muted">–</p>`;
+}
+function exCard(e) {
+  const L = lang();
+  const warn = e.avoid.filter(a => (P.complaints || []).includes(a));
+  return `<div class="exc"><div class="h"><b>${esc(e.n[L])}</b>${lvlDots(e.lvl)}</div>
+    <p class="why">${esc(e.why[L])}</p><ul>${e.cue[L].map(c => `<li>${esc(c)}</li>`).join('')}</ul>
+    <dl class="kv sm"><dt>${t('fault')}</dt><dd>${esc(e.fault[L])}</dd><dt>${t('equipment')}</dt><dd>${e.eq.length ? e.eq.map(x => t('eq_' + x)).join(' / ') : '–'}</dd>${e.avoid.length ? `<dt>${t('not_with')}</dt><dd class="${warn.length ? 'warn' : ''}">${e.avoid.map(a => t('cmp_' + a)).join(', ')}</dd>` : ''}</dl>
+    <a href="https://www.youtube.com/results?search_query=${encodeURIComponent(e.q)}" target="_blank" rel="noopener">${t('video')}: “${esc(e.q)}” ↗</a></div>`;
+}
+function vLibrary() {
+  const cats = ['all', 'core', 'hips', 'legs', 'upper', 'stab', 'power', 'mob', 'roll'];
+  return topbar(t('lib_title')) + `<input class="search" id="libq" type="search" placeholder="${t('search')}" value="${esc(UI.libQ)}" autocomplete="off">
+    <div class="chips">${cats.map(c => chip('libcat', `data-v="${c}"`, UI.libCat === c, t('cat_' + c))).join('')}</div>
+    <label class="check"><input type="checkbox" id="libmine" ${UI.libMine ? 'checked' : ''}><span>${t('only_mine')}</span></label>
+    <div class="lib" id="liblist">${libList()}</div>`;
+}
+
+/* ---------- settings ---------- */
+function vSettings() {
+  if (!UI.settingsD) UI.settingsD = clone(P);
+  const D = UI.settingsD;
+  const sec = (h, body) => `<section class="card"><h3>${h}</h3>${body}</section>`;
+  return topbar(t('settings'), { back: true, gear: false })
+    + sec(t('s_profile'), ['lang', 'name', 'rider', 'complaints', 'eq'].map(f => field(D, f)).join(''))
+    + sec(t('s_week'), ['perWeek', 'group', 'days', 'hardBike', 'dur'].map(f => field(D, f)).join(''))
+    + sec(t('s_planning'), ['start', 'rk', 'icsTime'].map(f => field(D, f)).join('')
+      + `<div class="fld"><span class="lbl">${t('phase_override')}</span><div class="chips">${['auto', 'base', 'inseason', 'offseason'].map(v => chip('fset', `data-f="phaseOverride" data-v="${v}"`, D.phaseOverride === v, v === 'auto' ? t('phase_auto') : t('phase_' + v))).join('')}</div></div>
+        <div class="fld"><span class="lbl">${t('level_manual')}</span><div class="chips">${[1, 2, 3].map(v => chip('fset', `data-f="level" data-v="${v}"`, +D.level === v, `${v} · ${t('lvl_' + v)}`)).join('')}</div></div>`)
+    + sec(t('s_app'), `<label class="check"><input type="checkbox" id="f-voice" data-field="voice" ${D.voice !== false ? 'checked' : ''}><span>${t('voice')}</span></label>
+        <label class="check"><input type="checkbox" id="f-travel" data-field="travelAlways" ${D.travelAlways ? 'checked' : ''}><span>${t('travel_always')}</span></label>`)
+    + `<div class="stick"><button class="btn wide" data-act="savesettings">${t('save')}</button><span class="msg" id="smsg"></span></div>`
+    + sec(t('pause'), P.paused ? `<button class="btn" data-act="resume">${t('resume')}</button>` : `<button class="btn quiet" data-act="pause">${t('pause')}</button>`)
+    + sec(t('backup'), `<p class="small muted">${t('backup_note')}</p><div class="row"><button class="btn ghost" data-act="backup">${t('backup')}</button><span class="msg" id="bmsg"></span></div>
+        <textarea id="restore" placeholder="${t('restore_ph')}"></textarea><button class="btn quiet" data-act="restore">${t('restore')}</button>`)
+    + sec(t('reset'), `<button class="btn danger" data-act="reset">${UI.resetArmed ? t('reset_confirm') : t('reset')}</button>`)
+    + sec(t('about'), `<picture class="logo-mid"><source srcset="icons/logo-light.png" media="(prefers-color-scheme: dark)"><img src="icons/logo-dark.png" alt="DynamVic Cycling coach"></picture><p class="small">${t('disclaimer')}</p><p class="small muted">DynamCore · ${t('version')} ${VERSION}</p>`);
+}
+
+/* ---------- install card ---------- */
+let deferredInstall = null;
+const isStandalone = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function installCard() {
+  if (isStandalone() || S.hideInstall) return '';
+  return `<div class="card"><h3>${t('install_title')}</h3><p class="small">${isIOS() ? t('install_ios') : t('install_android')}</p>
+    <div class="row">${deferredInstall ? `<button class="btn" data-act="install">${t('install_now')}</button>` : ''}<button class="btn quiet" data-act="hideinstall">${t('hide')}</button></div></div>`;
+}
+
+/* ---------- router ---------- */
+const VIEWS = { week: vWeek, plan: vPlan, routines: vRoutines, progress: vProgress, library: vLibrary, settings: vSettings, session: vSession };
+function route() {
+  let h = (location.hash || '#week').slice(1);
+  if (!P) h = 'wizard';
+  const html = h === 'wizard' ? vWizard() : (VIEWS[h] || vWeek)();
+  $('#view').innerHTML = html;
+  $('nav.tabs').hidden = !P;
+  document.querySelectorAll('nav.tabs a').forEach(a => a.toggleAttribute('aria-current', a.dataset.tab === h));
+  document.querySelectorAll('nav.tabs [data-l]').forEach(s => { s.textContent = t(s.dataset.l); });
+}
+function rerender() { const y = scrollY; route(); scrollTo(0, y); }
+addEventListener('hashchange', () => { UI.resetArmed = false; if (location.hash !== '#settings') UI.settingsD = null; UI.planD = null; route(); scrollTo(0, 0); });
+
+/* ---------- sheet ---------- */
+function sheet(html) {
+  const d = $('#sheet'); $('#sheetin').innerHTML = `<div class="grab"></div>${html}<button class="btn quiet wide" data-act="closesheet">${t('close')}</button>`;
+  if (d.showModal) { if (!d.open) d.showModal(); } else d.setAttribute('open', '');
+}
+const closeSheet = () => { const d = $('#sheet'); if (d.open) d.close(); };
+$('#sheet').addEventListener('click', e => { if (e.target === e.currentTarget) closeSheet(); });
+
+function rpeSheet(onSave, type) {
+  UI.rpeSave = onSave;
+  sheet(`<h3>${t('g_rpe')}</h3><p class="small muted">${t('rpe_hint', { r: RPE_TARGET[type] || '' })}</p>
+    <div class="rpe">${[...Array(11).keys()].map(i => `<button class="rpeb" data-act="rpe" data-v="${i}"><b>${i}</b><small>${t('rpe_labels')[i]}</small></button>`).join('')}</div>`);
+}
+function logSession(w, key, type, rpe, est) {
+  S.logs.push({ w, key, type, d: today(), rpe, est });
+  let msg = '';
+  if (rpe != null && !String(key).startsWith('R-') && type !== 'GROUP') {
+    const r = applyRpe(P, S.logs, type, rpe);
+    if (r) msg = t(r === 'harder' ? 'adj_harder' : 'adj_easier', { t: t('typeS_' + type).toLowerCase() });
+  }
+  saveAll(); return msg;
+}
+
+/* ---------- copy ---------- */
+async function copyText(text, msgEl, preEl) {
+  try { await navigator.clipboard.writeText(text); if (msgEl) msgEl.textContent = t('copied'); }
+  catch (e) { if (preEl) { const r = document.createRange(); r.selectNodeContents(preEl); const s = getSelection(); s.removeAllRanges(); s.addRange(r); } if (msgEl) msgEl.textContent = t('copy_fail'); }
+  if (msgEl) setTimeout(() => { msgEl.textContent = ''; }, 3000);
+}
+
+/* ---------- guided mode ---------- */
+const G = { steps: [], i: 0, end: 0, start: 0, paused: false, left: 0, iv: null, ctx: null, lock: null, lastBeep: null, r: null };
+function beep(freq, dur) {
+  try { const c = G.ctx; if (!c) return; const o = c.createOscillator(), g = c.createGain(); o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, c.currentTime); g.gain.exponentialRampToValueAtTime(0.5, c.currentTime + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
+    o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + dur + 0.05); } catch (e) { }
+}
+const buzz = p => { try { navigator.vibrate && navigator.vibrate(p); } catch (e) { } };
+function speak(text) {
+  if (P.voice === false || !('speechSynthesis' in window)) return;
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    const want = lang() === 'nl' ? ['nl-BE', 'nl-NL', 'nl'] : ['en-GB', 'en-US', 'en'];
+    const vs = speechSynthesis.getVoices();
+    const v = want.map(w => vs.find(x => x.lang && x.lang.replace('_', '-').startsWith(w))).find(Boolean);
+    if (v) u.voice = v; u.lang = want[0]; u.rate = 1.0;
+    speechSynthesis.speak(u);
+  } catch (e) { }
+}
+async function wake() { try { if ('wakeLock' in navigator) G.lock = await navigator.wakeLock.request('screen'); } catch (e) { } }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !$('#guided').hidden) wake(); });
+
+function buildSteps(ses) {
+  const steps = [{ kind: 'ready', dur: 10 }];
+  const all = [];
+  ses.blocks.forEach(b => { for (let r = 0; r < b.rounds; r++) b.items.forEach((it, i) => all.push({ b, r, i, it })); });
+  all.forEach((x, n) => {
+    const { b, r, i, it } = x, d = it.dose;
+    const sides = d.side ? ['L', 'R'] : [null];
+    sides.forEach((sd, si) => {
+      const timed = d.k === 't' || d.k === 'b';
+      steps.push({ kind: 'work', id: it.id, dose: d, side: sd, timed, dur: d.k === 't' ? d.n : d.k === 'b' ? d.n * 10 : 0, blk: b.k, round: r + 1, rounds: b.rounds });
+      if (sd === 'L') steps.push({ kind: 'switch', dur: timed ? 5 : 3 });
+    });
+    const nxt = all[n + 1];
+    if (!nxt) return;
+    const lastInRound = i === b.items.length - 1;
+    if (b.rest && nxt.b === b) steps.push({ kind: 'rest', dur: lastInRound ? b.roundRest : b.rest, next: nxt.it });
+    else steps.push({ kind: 'rest', dur: nxt.b !== b ? 15 : 5, next: nxt.it, short: true });
+  });
+  return steps;
+}
+function startGuided(r) {
+  try { const AC = window.AudioContext || window.webkitAudioContext; if (AC) { G.ctx = G.ctx || new AC(); G.ctx.resume && G.ctx.resume(); } } catch (e) { }
+  beep(1, 0.01);
+  G.r = r; G.steps = buildSteps(r.ses); G.i = 0; G.paused = false; G.done = false; G.lastBeep = null;
+  enter(true); render();
+  $('#guided').hidden = false; document.body.classList.add('noscroll');
+  wake(); clearInterval(G.iv); G.iv = setInterval(tick, 200); tick();
+}
+function stopGuided() {
+  clearInterval(G.iv); $('#guided').hidden = true; document.body.classList.remove('noscroll');
+  try { G.lock && G.lock.release(); } catch (e) { } G.lock = null; try { speechSynthesis.cancel(); } catch (e) { }
+}
+function enter(first) {
+  const s = G.steps[G.i];
+  G.start = Date.now(); G.end = s.dur ? Date.now() + s.dur * 1000 : 0;
+  if (s.kind === 'work') {
+    const sideTxt = s.side ? ` ${s.side === 'L' ? t('g_left') : t('g_right')}.` : '';
+    speak(`${exName(s.id)}.${sideTxt} ${fmtDose({ ...s.dose, side: false }).replace(t('sec'), lang() === 'nl' ? 'seconden' : 'seconds')}`);
+    if (!first) { beep(1320, 0.35); buzz([250]); }
+  } else if (s.kind === 'rest') {
+    if (!s.short) { speak(`${t('g_rest')}. ${t('g_next')}: ${exName(s.next.id)}`); beep(660, 0.35); buzz([120, 80, 120]); }
+  } else if (s.kind === 'switch') { speak(t('g_switch')); }
+  else if (s.kind === 'ready') speak(`${t('g_get_ready')}. ${exName(G.steps[1].id)}`);
+}
+function advance() {
+  G.i++;
+  if (G.i >= G.steps.length) return finishGuided();
+  enter(false); render();
+}
+function tick() {
+  if (G.paused || G.done) return;
+  const s = G.steps[G.i];
+  if (s.dur) {
+    const left = Math.ceil((G.end - Date.now()) / 1000);
+    if (left <= 0) return advance();
+    if (left <= 3 && G.lastBeep !== `${G.i}-${left}`) { G.lastBeep = `${G.i}-${left}`; beep(880, 0.1); }
+    const b = $('#guided .big'); if (b && b.textContent !== String(left)) b.textContent = left;
+  }
+}
+function render() {
+  const s = G.steps[G.i]; if (!s) return;
+  const el = $('#guided');
+  const total = G.steps.length, pct = G.i / total * 100;
+  const left = s.dur ? Math.max(0, Math.ceil(((G.paused ? G.left : G.end - Date.now())) / 1000)) : Math.floor((Date.now() - G.start) / 1000);
+  const nextWork = G.steps.slice(G.i + 1).find(x => x.kind === 'work');
+  el.className = s.kind === 'work' ? 'work' : '';
+  let mid = '';
+  if (s.kind === 'work') {
+    const e = EXMAP[s.id];
+    mid = `<div class="kind">${t('blk_' + s.blk)}${s.side ? ' · ' + (s.side === 'L' ? t('g_left') : t('g_right')) : ''}</div>
+      <div class="big">${s.timed ? left : s.dose.n}</div><div class="unit">${s.timed ? t('sec') : t('reps')}</div>
+      <div class="exn">${esc(exName(s.id))}</div><div class="cue">${esc(e.cue[lang()][0])}</div>
+      ${!s.timed ? `<button class="gdone" data-act="gnext">${t('g_done_btn')}</button>` : ''}
+      ${nextWork && nextWork.id !== s.id ? `<div class="nxt">${t('g_next')}: ${esc(exName(nextWork.id))}</div>` : ''}`;
+  } else {
+    const label = s.kind === 'ready' ? t('g_get_ready') : s.kind === 'switch' ? t('g_switch') : t('g_rest');
+    const nx = s.kind === 'switch' ? G.steps[G.i + 1] : s.next ? { id: s.next.id } : G.steps[G.i + 1];
+    mid = `<div class="kind">${label}</div><div class="big">${left}</div><div class="unit">${t('sec')}</div>
+      ${nx && nx.id ? `<div class="unit">${t('g_next')}</div><div class="exn">${esc(exName(nx.id))}</div>` : ''}`;
+  }
+  const rd = s.kind === 'work' && s.rounds > 1 ? t('g_round', { a: s.round, b: s.rounds }) : '';
+  el.innerHTML = `<div class="gtop"><div class="gbar"><i style="width:${pct}%"></i></div><div class="gt"><span>${rd}</span><span>${esc(t('type_' + G.r.ses.type))}</span>
+      <button class="gicon" data-act="gvoice" aria-label="${t('g_voice')}">${P.voice === false ? IC.mute : IC.sound}</button></div></div>
+    <div class="gmid">${mid}</div>
+    <div class="gbtns"><button data-act="gstop">${t('g_stop')}</button><button class="main" data-act="gpause">${G.paused ? t('g_resume') : t('g_pause')}</button><button data-act="gnext">${t('g_skip')}</button></div>`;
+}
+function finishGuided() {
+  G.done = true; clearInterval(G.iv); beep(1320, 0.7); buzz([300, 100, 300]); speak(t('g_finished'));
+  const el = $('#guided'); el.className = '';
+  el.innerHTML = `<div class="gtop"></div><div class="gmid"><div class="kind">${t('g_finished')}</div><h2 class="exn">${t('g_rpe')}</h2>
+    <div class="rpe">${[...Array(11).keys()].map(i => `<button class="rpeb" data-act="grpe" data-v="${i}"><b>${i}</b><small>${t('rpe_labels')[i]}</small></button>`).join('')}</div><p class="gmsg" id="gmsg"></p></div>
+    <div class="gbtns one"><button class="main" data-act="gstop">${t('close')}</button></div>`;
+}
+
+/* ---------- calendar ---------- */
+function exportIcs(n) {
+  const w0 = Math.max(1, curWeek());
+  const ics = buildIcs(P, S, w0, n, 'DynamCore', (s) => `DynamCore · ${s.type === 'GROUP' ? t('type_GROUP') : t('type_' + s.type)}`);
+  const name = 'dynamcore.ics';
+  const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' }));
+  const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/* ---------- events ---------- */
+function weekOv(w) { return S.weekOv[w] || (S.weekOv[w] = {}); }
+document.addEventListener('click', ev => {
+  const el = ev.target.closest('[data-act]'); if (!el) return;
+  const a = el.dataset.act, D = UI.wz ? UI.wz.d : UI.settingsD;
+  switch (a) {
+    case 'go': location.hash = '#' + el.dataset.to; break;
+    case 'back': if (history.length > 1) history.back(); else location.hash = '#week'; break;
+    case 'fchip': { const tgt = !P ? UI.wz.d : (location.hash === '#plan' ? P : UI.settingsD); setField(tgt, el.dataset.f, el.dataset.v, true); rerender(); break; }
+    case 'fset': { const tgt = !P ? UI.wz.d : UI.settingsD; setField(tgt, el.dataset.f, el.dataset.v, false); rerender(); break; }
+    case 'addrace': {
+      const d = $('#race-d').value, n = $('#race-n').value.trim(); if (!d) return;
+      const tgt = !P ? UI.wz.d : (location.hash === '#plan' ? P : UI.settingsD);
+      tgt.races.push({ d, n }); tgt.races.sort((x, y) => x.d.localeCompare(y.d)); if (P && tgt === P) saveAll(); rerender(); break;
+    }
+    case 'rmrace': { const tgt = !P ? UI.wz.d : (location.hash === '#plan' ? P : UI.settingsD); tgt.races.splice(+el.dataset.i, 1); if (P && tgt === P) saveAll(); rerender(); break; }
+    case 'wznext': UI.wz.step++; rerender(); scrollTo(0, 0); break;
+    case 'wzback': UI.wz.step--; rerender(); scrollTo(0, 0); break;
+    case 'wzlevel': UI.wz.testMode = el.dataset.v; rerender(); break;
+    case 'wzfinish': {
+      const d = UI.wz.d; d.start = DN.iso(DN.monday(DN.parse(d.start)));
+      if (UI.wz.testMode === 'now') { d.level = levelFromTest(UI.wz.test) || 1; S.tests = [{ w: 1, d: today(), ...UI.wz.test }]; } else d.level = 1;
+      P = d; UI.wz = null; saveAll(); UI.viewWeek = null; location.hash = '#week'; route(); break;
+    }
+    case 'wk': UI.viewWeek = Math.max(1, UI.viewWeek + +el.dataset.d); rerender(); break;
+    case 'gow': UI.viewWeek = +el.dataset.w; location.hash = '#week'; break;
+    case 'open': UI.sess = { w: +el.dataset.w, key: el.dataset.k }; location.hash = '#session'; break;
+    case 'routine': UI.sess = { routine: el.dataset.r, type: UI.extraType }; location.hash = '#session'; break;
+    case 'extratype': UI.extraType = el.dataset.v; rerender(); break;
+    case 'travel': { const w = +el.dataset.w, o = weekOv(w); o.travel = !(o.travel ?? P.travelAlways); saveAll(); rerender(); break; }
+    case 'togrec': { const w = +el.dataset.w, o = weekOv(w); o.rec = !isRecovery(P, S, w); saveAll(); rerender(); break; }
+    case 'skip': { const o = weekOv(+el.dataset.w); (o.skips = o.skips || {})[el.dataset.k] = true; saveAll(); rerender(); break; }
+    case 'unskip': { const o = weekOv(+el.dataset.w); if (o.skips) delete o.skips[el.dataset.k]; saveAll(); rerender(); break; }
+    case 'movesheet': {
+      const w = +el.dataset.w, k = el.dataset.k, mon = mondayOfWeek(P, w), td = today();
+      const opts = [0, 1, 2, 3, 4, 5, 6].filter(d => mon + d >= td);
+      UI.moveCtx = { w, k };
+      sheet(`<h3>${t('move_to')}</h3>${opts.length ? `<div class="chips col">${opts.map(d => chip('moveto', `data-d="${d}"`, false, `${dayName(d, true)} ${DN.fmt(mon + d)}`)).join('')}</div>` : `<p class="muted">–</p>`}`);
+      break;
+    }
+    case 'moveto': { const { w, k } = UI.moveCtx, o = weekOv(w); (o.moves = o.moves || {})[k] = +el.dataset.d; saveAll(); closeSheet(); rerender(); break; }
+    case 'markgroup': { const w = +el.dataset.w; rpeSheet(rpe => { logSession(w, 'GROUP', 'GROUP', rpe, 60); }, 'GROUP'); break; }
+    case 'groupedit': {
+      const w = +el.dataset.w, o = weekOv(w); UI.groupW = w;
+      const focus = o.groupFocus || P.group.focus;
+      sheet(`<h3>${t('type_GROUP')} · ${t('week_n', { n: w })}</h3><div class="chips">${chip('groupoff', '', !!o.groupOff, t('group_off'))}</div>
+        <span class="lbl">${t('group_focus_week')}</span><div class="chips">${OPT.focus.map(v => chip('groupfocus', `data-v="${v}"`, focus.includes(v), t('focus_' + v))).join('')}</div>`);
+      break;
+    }
+    case 'groupoff': { const o = weekOv(UI.groupW); o.groupOff = !o.groupOff; saveAll(); closeSheet(); rerender(); break; }
+    case 'groupfocus': { const o = weekOv(UI.groupW); const f = [...(o.groupFocus || P.group.focus)]; const i = f.indexOf(el.dataset.v); if (i >= 0) f.splice(i, 1); else f.push(el.dataset.v); o.groupFocus = f; saveAll(); el.setAttribute('aria-pressed', String(i < 0)); rerender(); break; }
+    case 'gotest': ev.preventDefault(); UI.testW = +el.dataset.w || UI.testW; location.hash = '#progress'; break;
+    case 'acceptlvl': P.level = S.suggest; P.adj = {}; S.suggest = null; saveAll(); rerender(); break;
+    case 'declinelvl': S.suggest = null; saveAll(); rerender(); break;
+    case 'dur': { const c = UI.sess; if (c.routine) c.dur = +el.dataset.v; else { const o = weekOv(c.w); (o.dur = o.dur || {})[c.key] = +el.dataset.v; saveAll(); } rerender(); break; }
+    case 'exinfo': sheet(exCard(EXMAP[el.dataset.id])); break;
+    case 'swapsheet': {
+      const r = resolveSession(); const id = el.dataset.id; UI.swapCtx = { orig: el.dataset.orig, id };
+      const inSes = new Set(r.ses.blocks.flatMap(b => b.items.map(i => i.id)));
+      const opts = swapOptions(P, id, r.ses.level, r.ses.travel).filter(e => !inSes.has(e.id));
+      sheet(`<h3>${t('swap_title')}</h3><p class="small muted">${esc(exName(id))}</p>${opts.length ? `<div class="swl">${opts.map(e => `<button class="swo" data-act="swapto" data-id="${e.id}"><span>${esc(e.n[lang()])}</span>${lvlDots(e.lvl)}<small>${e.eq.length ? e.eq.map(x => t('eq_' + x)).join(' / ') : ''}</small></button>`).join('')}</div>` : `<p class="muted">${t('swap_none')}</p>`}
+        <label class="check"><input type="checkbox" id="swnever"><span>${t('swap_never', { x: esc(exName(id)) })}</span></label>`);
+      break;
+    }
+    case 'swapto': {
+      const c = UI.sess, o = weekOv(c.w); o.swaps = o.swaps || {}; const m = o.swaps[c.key] = o.swaps[c.key] || {};
+      m[UI.swapCtx.orig] = el.dataset.id;
+      if ($('#swnever') && $('#swnever').checked) { P.blocked = [...new Set([...(P.blocked || []), UI.swapCtx.id])]; }
+      saveAll(); closeSheet(); rerender(); break;
+    }
+    case 'guided': { const r = resolveSession(); if (r) startGuided(r); break; }
+    case 'gnext': if (G.paused) { G.paused = false; } advance(); break;
+    case 'gpause':
+      if (G.paused) { G.paused = false; const s = G.steps[G.i]; if (s.dur) G.end = Date.now() + G.left; else G.start = Date.now() - G.left; }
+      else { G.paused = true; const s = G.steps[G.i]; G.left = s.dur ? Math.max(0, G.end - Date.now()) : Date.now() - G.start; try { speechSynthesis.cancel(); } catch (e) { } }
+      render(); break;
+    case 'gstop': stopGuided(); rerender(); break;
+    case 'gvoice': P.voice = P.voice === false; saveAll(); if (P.voice === false) { try { speechSynthesis.cancel(); } catch (e) { } } render(); break;
+    case 'grpe': {
+      const r = G.r, v = +el.dataset.v;
+      const msg = r.routine ? (S.logs.push({ w: curWeek(), key: 'R-' + r.routine, type: r.ses.type, d: today(), rpe: v, est: r.ses.est }), saveAll(), '') : logSession(r.plan.w, r.slot.key, r.ses.type, v, r.ses.est);
+      $('#gmsg').textContent = msg || t('saved');
+      document.querySelectorAll('#guided .rpeb').forEach(b => b.setAttribute('aria-pressed', String(b === el)));
+      break;
+    }
+    case 'rpesheet': { const r = resolveSession(); rpeSheet(rpe => { const m = r.routine ? '' : logSession(r.plan.w, r.slot.key, r.ses.type, rpe, r.ses.est); if (m) setTimeout(() => alertCard(m), 50); }, r.ses.type); break; }
+    case 'rpe': { const f = UI.rpeSave; closeSheet(); if (f) f(+el.dataset.v); rerender(); break; }
+    case 'copyint': { const r = resolveSession(); copyText(intervalsText(r), $('#cmsg'), $('#itxt')); break; }
+    case 'ics': exportIcs(+el.dataset.n); break;
+    case 'libcat': UI.libCat = el.dataset.v; rerender(); break;
+    case 'sw': {
+      const f = el.dataset.f;
+      if (UI.sw && UI.sw.f === f) { const s = Math.round((Date.now() - UI.sw.t0) / 1000); UI.sw = null; const inp = $('#t-' + f); inp.value = s; inp.dispatchEvent(new Event('input', { bubbles: true })); rerender(); }
+      else { UI.sw = { f, t0: Date.now() }; rerender(); }
+      break;
+    }
+    case 'savesettings': {
+      const D2 = UI.settingsD; D2.start = DN.iso(DN.monday(DN.parse(D2.start)));
+      if (+D2.level !== +P.level) D2.adj = {};
+      P = clone(D2); saveAll(); document.documentElement.lang = lang(); UI.viewWeek = null; rerender(); const m = $('#smsg'); if (m) m.textContent = t('saved'); break;
+    }
+    case 'pause': P.paused = today(); saveAll(); location.hash = '#week'; break;
+    case 'resume': { const wks = Math.ceil((today() - P.paused) / 7); P.start = DN.iso(startNum(P) + wks * 7); P.paused = null; UI.viewWeek = null; UI.settingsD = null; saveAll(); location.hash = '#week'; rerender(); break; }
+    case 'backup': { const data = JSON.stringify({ app: 'dynamcore', v: 1, profile: P, state: S }); copyText(data, $('#bmsg'), null); $('#restore').value = data; break; }
+    case 'restore': {
+      try { const o = JSON.parse($('#restore').value); if (o.app !== 'dynamcore' || !o.profile) throw 0; P = o.profile; S = Object.assign({ weekOv: {}, logs: [], tests: [] }, o.state); saveAll(); UI.settingsD = null; UI.viewWeek = null; location.hash = '#week'; route(); }
+      catch (e) { $('#restore').value = ''; $('#restore').placeholder = t('restore_bad'); }
+      break;
+    }
+    case 'reset':
+      if (!UI.resetArmed) { UI.resetArmed = true; rerender(); setTimeout(() => { if (UI.resetArmed) { UI.resetArmed = false; if (location.hash === '#settings') rerender(); } }, 5000); }
+      else { const keepLang = lang(); try { localStorage.removeItem('dc:profile'); localStorage.removeItem('dc:state'); } catch (e) { } P = null; S = { weekOv: {}, logs: [], tests: [], suggest: null }; UI.wz = null; UI.resetArmed = false; UI.settingsD = null; location.hash = '#wizard'; route(); UI.wz.d.lang = keepLang; rerender(); }
+      break;
+    case 'install': if (deferredInstall) { deferredInstall.prompt(); deferredInstall.userChoice.finally(() => { deferredInstall = null; rerender(); }); } break;
+    case 'hideinstall': S.hideInstall = true; saveAll(); rerender(); break;
+    case 'closesheet': closeSheet(); break;
+  }
+});
+function alertCard(m) { sheet(`<p>${esc(m)}</p>`); }
+
+document.addEventListener('input', ev => {
+  const tg = ev.target;
+  if (tg.id === 'libq') { UI.libQ = tg.value; $('#liblist').innerHTML = libList(); return; }
+  if (tg.id === 'libmine') { UI.libMine = tg.checked; $('#liblist').innerHTML = libList(); return; }
+  if (tg.dataset.field) {
+    const D = !P ? UI.wz.d : UI.settingsD; if (!D) return;
+    const k = tg.dataset.field; D[k] = tg.type === 'checkbox' ? tg.checked : tg.value;
+    if (k === 'accepted') rerender();
+    return;
+  }
+  if (tg.dataset.tk) {
+    const key = tg.dataset.tk; const raw = tg.value.replace(',', '.').replace(/[^0-9.\-+]/g, '');
+    const val = raw === '' || isNaN(parseFloat(raw)) ? null : Math.round(parseFloat(raw) * 10) / 10;
+    if (!P) { if (val == null) delete UI.wz.test[key]; else UI.wz.test[key] = val; const btn = $('[data-act="wznext"]'); if (btn) btn.disabled = !levelFromTest(UI.wz.test); return; }
+    let rec = S.tests.find(x => x.w === UI.testW); if (!rec) { rec = { w: UI.testW, d: today() }; S.tests.push(rec); }
+    if (val == null) delete rec[key]; else rec[key] = val;
+    const l = levelFromTest(rec);
+    if (l && l !== P.level) S.suggest = l; else if (l === P.level) S.suggest = null;
+    saveAll();
+    const m = $('#tmsg'); if (m) m.textContent = l ? t('test_saved', { l: `${l} · ${t('lvl_' + l)}` }) : t('saved');
+  }
+});
+document.addEventListener('change', ev => { if (ev.target.dataset && ev.target.dataset.tk && !P) rerender(); if (ev.target.dataset && ev.target.dataset.tk && P && location.hash === '#progress') rerender(); });
+
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; if ((location.hash || '#week') === '#week') rerender(); });
+if ('serviceWorker' in navigator && location.protocol === 'https:') addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => { }); });
+if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => { }; } catch (e) { } }
+setInterval(() => { if (UI.sw) { const s = Math.round((Date.now() - UI.sw.t0) / 1000); const i = $('#t-' + UI.sw.f); if (i) i.value = s; } }, 250);
+
+route();
