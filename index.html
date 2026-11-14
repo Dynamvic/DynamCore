@@ -20,7 +20,7 @@
 /* DynamCore: black-and-white like the DynamVic logo, one cobalt accent; session types carry their own colour. Top bar, scrolling content, fixed tab bar. */
 :root{
   --bg:#F5F5F3; --surface:#FFFFFF; --fg:#111214; --muted:#5D616B; --line:#E1E2E5; --soft:#EEEFF1;
-  --accent:#2448C8; --accent-soft:#E3E9FB; --on-accent:#FFFFFF;
+  --accent:#2448C8; --accent-soft:#E3E9FB; --on-accent:#FFFFFF; --far:#A9AEB8;
   --ok:#157F4B; --bad:#B42318; --warn:#9A6200;
   --t-CORE:#2448C8; --t-LEG:#C2410C; --t-MOB:#0F766E; --t-GROUP:#5D616B; --t-ACT:#7C3AED; --t-REC:#0F766E;
   --ph-base:#2448C8; --ph-inseason:#C2410C; --ph-offseason:#0F766E; --ph-taper:#7C3AED; --ph-race:#B42318;
@@ -30,7 +30,7 @@
 }
 @media (prefers-color-scheme:dark){:root{
   --bg:#0E0F11; --surface:#17181B; --fg:#EDEEF0; --muted:#9BA0AA; --line:#2A2C31; --soft:#202226;
-  --accent:#7D98FF; --accent-soft:#1C2445; --on-accent:#0B0D14;
+  --accent:#7D98FF; --accent-soft:#1C2445; --on-accent:#0B0D14; --far:#5B606B;
   --ok:#4CC38A; --bad:#FF7A6E; --warn:#E8B04A;
   --t-CORE:#7D98FF; --t-LEG:#FF8A4C; --t-MOB:#3CC4B4; --t-GROUP:#9BA0AA; --t-ACT:#B394FF; --t-REC:#3CC4B4;
   --ph-base:#7D98FF; --ph-inseason:#FF8A4C; --ph-offseason:#3CC4B4; --ph-taper:#B394FF; --ph-race:#FF7A6E;
@@ -223,6 +223,8 @@ p.ok{color:var(--ok);display:flex;gap:6px;justify-content:center;align-items:cen
 /* library */
 .lib{display:grid;gap:10px}
 .exc{display:grid;gap:6px}
+svg.anim{width:100%;height:auto;max-height:190px;display:block;background:var(--soft);border-radius:12px;stroke:none;fill:none}
+.gmid svg.anim{width:min(78vw,360px);max-height:26vh;background:color-mix(in srgb,var(--gfg) 92%,transparent)}
 .exc .h{display:flex;justify-content:space-between;gap:10px;align-items:center}
 .exc .h b{font-family:var(--display);font-size:18px}
 .exc .why{color:var(--muted);font-size:14.5px}
@@ -263,6 +265,7 @@ nav.tabs a[aria-current]{color:var(--accent)}
 .gmid{display:grid;grid-template-columns:minmax(0,1fr);align-content:center;justify-items:center;text-align:center;gap:6px;min-height:0;overflow:auto}
 .gmid .kind{font-family:var(--display);font-weight:700;font-size:18px;letter-spacing:.14em;text-transform:uppercase;opacity:.85}
 .gmid .big{font-family:var(--display);font-weight:800;font-size:min(36vw,220px);line-height:.95;font-variant-numeric:tabular-nums}
+.gmid .big.sm{font-size:min(24vw,130px)}
 .gmid .unit{font-size:15px;opacity:.8}
 .gmid .exn{font-family:var(--display);font-weight:800;font-size:28px;line-height:1.1;text-wrap:balance}
 .gmid .cue{font-size:16px;opacity:.9;max-width:34ch}
@@ -294,6 +297,7 @@ nav.tabs a[aria-current]{color:var(--accent)}
 <script src="i18n.js"></script>
 <script src="exercises.js"></script>
 <script src="engine.js"></script>
+<script src="anim.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

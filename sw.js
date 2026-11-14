@@ -1,7 +1,7 @@
 /* DynamCore service worker: works offline.
    After changing any file: raise VERSION so phones fetch the new version. */
-const VERSION = 'dynamcore-v3';
-const CORE = ['./', 'index.html', 'app.js', 'engine.js', 'exercises.js', 'i18n.js', 'manifest.webmanifest',
+const VERSION = 'dynamcore-v4';
+const CORE = ['./', 'index.html', 'app.js', 'engine.js', 'anim.js', 'exercises.js', 'i18n.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/logo-dark.png', 'icons/logo-light.png'];
 
 self.addEventListener('install', e => {

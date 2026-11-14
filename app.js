@@ -1,7 +1,7 @@
 'use strict';
 /* DynamCore – user interface. Data: exercises.js, engine.js, i18n.js. Everything is stored on this phone only. */
 
-const VERSION = '1.2';
+const VERSION = '1.3';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -374,7 +374,7 @@ function libList() {
 function exCard(e) {
   const L = lang();
   const warn = e.avoid.filter(a => (P.complaints || []).includes(a));
-  return `<div class="exc"><div class="h"><b>${esc(e.n[L])}</b>${lvlDots(e.lvl)}</div>
+  return `<div class="exc">${ANIMV.svg(e.id)}<div class="h"><b>${esc(e.n[L])}</b>${lvlDots(e.lvl)}</div>
     <p class="why">${esc(e.why[L])}</p><ul>${e.cue[L].map(c => `<li>${esc(c)}</li>`).join('')}</ul>
     <dl class="kv sm"><dt>${t('fault')}</dt><dd>${esc(e.fault[L])}</dd><dt>${t('equipment')}</dt><dd>${e.eq.length ? e.eq.map(x => t('eq_' + x)).join(' / ') : '–'}</dd>${e.avoid.length ? `<dt>${t('not_with')}</dt><dd class="${warn.length ? 'warn' : ''}">${e.avoid.map(a => t('cmp_' + a)).join(', ')}</dd>` : ''}</dl>
     <a href="https://www.youtube.com/results?search_query=${encodeURIComponent(e.q)}" target="_blank" rel="noopener">${t('video')}: “${esc(e.q)}” ↗</a></div>`;
@@ -565,7 +565,7 @@ function render() {
   if (s.kind === 'work') {
     const e = EXMAP[s.id];
     mid = `<div class="kind">${t('blk_' + s.blk)}${s.side ? ' · ' + (s.side === 'L' ? t('g_left') : t('g_right')) : ''}</div>
-      <div class="big">${s.timed ? left : s.dose.n}</div><div class="unit">${s.timed ? t('sec') : t('reps')}</div>
+      ${ANIMV.svg(s.id)}<div class="big${ANIMV.has(s.id) ? ' sm' : ''}">${s.timed ? left : s.dose.n}</div><div class="unit">${s.timed ? t('sec') : t('reps')}</div>
       <div class="exn">${esc(exName(s.id))}</div><div class="cue">${esc(e.cue[lang()][0])}</div>
       ${!s.timed ? `<button class="gdone" data-act="gnext">${t('g_done_btn')}</button>` : ''}
       ${nextWork && nextWork.id !== s.id ? `<div class="nxt">${t('g_next')}: ${esc(exName(nextWork.id))}</div>` : ''}`;
