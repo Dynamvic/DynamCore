@@ -1,7 +1,7 @@
 'use strict';
 /* DynamCore – user interface. Data: exercises.js, engine.js, i18n.js. Everything is stored on this phone only. */
 
-const VERSION = '1.0';
+const VERSION = '1.1';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -268,7 +268,7 @@ function vSession() {
   const done = !r.routine && isDone(plan.w, slot.key);
   html += `<div class="stick"><button class="btn wide big" data-act="guided">${IC.play}<span>${t('start_guided')}</span></button>
     ${done ? `<p class="center ok">${IC.check} ${t('status_done')}</p>` : `<button class="btn quiet wide" data-act="rpesheet">${t('mark_done')}</button>`}</div>
-    <section class="card"><h3>${t('intervals_hdr')}</h3><p class="small muted">${t('intervals_note')}</p><div class="row"><button class="btn ghost" data-act="copyint">${t('copy_intervals')}</button><span class="msg" id="cmsg"></span></div><pre class="itxt" id="itxt">${esc(intervalsText(r))}</pre></section>`;
+    <section class="card"><h3>${t('intervals_hdr')}</h3><p class="small muted">${P.icuKey ? t('icu_send_note') : t('intervals_note')}</p><div class="row"><button class="btn ghost" data-act="copyint">${t('copy_intervals')}</button><span class="msg" id="cmsg"></span></div><pre class="itxt" id="itxt">${esc(intervalsText(r))}</pre></section>`;
   return html;
 }
 function intervalsText(r) {
@@ -276,7 +276,7 @@ function intervalsText(r) {
   L.push(`DynamCore – ${t('type_' + ses.type)}${r.routine ? '' : ` | ${t('week_n', { n: plan.w })} ${dayName(slot.day)}`} | ${t('est', { n: ses.est })} | RPE ${RPE_TARGET[ses.type]}`);
   ses.blocks.forEach(b => {
     L.push(`${t('blk_' + b.k)}${b.rounds > 1 ? ' – ' + t('rounds', { n: b.rounds }) : ''}${b.rest ? ', ' + t('rest_s', { n: b.rest }) : ''}:`);
-    b.items.forEach(i => L.push(` - ${exName(i.id)}  ${fmtDose(i.dose)}`));
+    b.items.forEach(i => L.push(`• ${exName(i.id)}  ${fmtDose(i.dose)}`));
   });
   L.push(lang() === 'nl' ? 'Na de sessie: RPE (0–10) + commentaar.' : 'After the session: RPE (0–10) + comment.');
   return L.join('\n');
@@ -295,6 +295,7 @@ function vPlan() {
       <button class="chip sm" data-act="togrec" data-w="${w}" aria-pressed="${pl.rec}" title="${t('toggle_rec')}">${t('recovery_week').split(' ')[0]}</button></div>`;
   }
   html += `<section class="plist">${rows}</section>
+    <section class="card"><h3>${t('intervals_hdr')}</h3>${P.icuKey ? `<div class="row"><button class="btn" data-act="icusend">${t('icu_send')}</button></div><p class="msg" id="icumsg" aria-live="polite"></p><p class="small muted">${t('icu_send_note')}</p>` : `<p class="small muted">${t('icu_setup')}</p><button class="btn ghost" data-act="go" data-to="settings">${t('settings')}</button>`}</section>
     <section class="card"><h3>${t('ics_export')}</h3><div class="row">${[4, 8, 12].map(n => `<button class="btn ghost" data-act="ics" data-n="${n}">${t('ics_weeks', { n })}</button>`).join('')}</div><p class="small muted">${t('ics_note')}</p></section>`;
   return html;
 }
@@ -384,9 +385,15 @@ function vSettings() {
       + `<div class="fld"><span class="lbl">${t('phase_override')}</span><div class="chips">${['auto', 'base', 'inseason', 'offseason'].map(v => chip('fset', `data-f="phaseOverride" data-v="${v}"`, D.phaseOverride === v, v === 'auto' ? t('phase_auto') : t('phase_' + v))).join('')}</div></div>
         <div class="fld"><span class="lbl">${t('level_manual')}</span><div class="chips">${[1, 2, 3].map(v => chip('fset', `data-f="level" data-v="${v}"`, +D.level === v, `${v} · ${t('lvl_' + v)}`)).join('')}</div></div>`)
     + sec(t('s_app'), `<label class="check"><input type="checkbox" id="f-voice" data-field="voice" ${D.voice !== false ? 'checked' : ''}><span>${t('voice')}</span></label>
+        ${voiceSelect(D)}
         <label class="check"><input type="checkbox" id="f-travel" data-field="travelAlways" ${D.travelAlways ? 'checked' : ''}><span>${t('travel_always')}</span></label>`)
     + `<div class="stick"><button class="btn wide" data-act="savesettings">${t('save')}</button><span class="msg" id="smsg"></span></div>`
     + sec(t('pause'), P.paused ? `<button class="btn" data-act="resume">${t('resume')}</button>` : `<button class="btn quiet" data-act="pause">${t('pause')}</button>`)
+    + sec(t('intervals_hdr'), `<p class="small muted">${t('icu_lead')}</p>
+        <label class="fld"><span class="lbl">${t('icu_key')}</span><input id="f-icukey" type="password" autocomplete="off" data-field="icuKey" value="${esc(D.icuKey || '')}"></label>
+        <label class="fld"><span class="lbl">${t('icu_id')} <small>(${t('optional')})</small></span><input id="f-icuid" data-field="icuId" placeholder="0" value="${esc(D.icuId || '')}"></label>
+        <div class="row"><button class="btn ghost" data-act="icutest">${t('icu_test')}</button><button class="btn" data-act="icusend">${t('icu_send')}</button></div><p class="msg" id="icumsg" aria-live="polite"></p>
+        <p class="small muted">${t('icu_privacy')}</p>`)
     + sec(t('backup'), `<p class="small muted">${t('backup_note')}</p><div class="row"><button class="btn ghost" data-act="backup">${t('backup')}</button><span class="msg" id="bmsg"></span></div>
         <textarea id="restore" placeholder="${t('restore_ph')}"></textarea><button class="btn quiet" data-act="restore">${t('restore')}</button>`)
     + sec(t('reset'), `<button class="btn danger" data-act="reset">${UI.resetArmed ? t('reset_confirm') : t('reset')}</button>`)
@@ -462,7 +469,8 @@ function speak(text) {
     const u = new SpeechSynthesisUtterance(text);
     const want = lang() === 'nl' ? ['nl-BE', 'nl-NL', 'nl'] : ['en-GB', 'en-US', 'en'];
     const vs = speechSynthesis.getVoices();
-    const v = want.map(w => vs.find(x => x.lang && x.lang.replace('_', '-').startsWith(w))).find(Boolean);
+    const chosen = P.voiceName && vs.find(x => x.name === P.voiceName && x.lang && x.lang.toLowerCase().startsWith(lang()));
+    const v = chosen || want.map(w => vs.find(x => x.lang && x.lang.replace('_', '-').startsWith(w))).find(Boolean);
     if (v) u.voice = v; u.lang = want[0]; u.rate = 1.0;
     speechSynthesis.speak(u);
   } catch (e) { }
@@ -574,6 +582,71 @@ function exportIcs(n) {
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
+/* ---------- Intervals.icu ---------- */
+function icuCreds() {
+  const D = location.hash === '#settings' && UI.settingsD ? UI.settingsD : P;
+  const key = String(D.icuKey || '').trim(), id = String(D.icuId || '').trim() || '0';
+  if (D !== P) { P.icuKey = key; P.icuId = D.icuId || ''; saveAll(); }
+  return { key, id };
+}
+async function icuFetch(path, opts = {}) {
+  const { key, id } = icuCreds();
+  if (!key) throw { code: 'nokey' };
+  let res;
+  try {
+    res = await fetch(`https://intervals.icu/api/v1/athlete/${encodeURIComponent(id)}${path}`, {
+      ...opts, headers: { Authorization: 'Basic ' + btoa('API_KEY:' + key), 'Content-Type': 'application/json', ...(opts.headers || {}) }
+    });
+  } catch (e) { throw { code: 'blocked' }; }
+  if (res.status === 401 || res.status === 403) throw { code: 'auth' };
+  if (!res.ok) throw { code: 'http', status: res.status };
+  return res.json().catch(() => ({}));
+}
+function icuError(e) {
+  return e.code === 'nokey' ? t('icu_err_nokey') : e.code === 'auth' ? t('icu_err_auth') : e.code === 'blocked' ? t('icu_err_blocked') : t('icu_err_http', { s: e.status || '?' });
+}
+async function icuTest() {
+  const m = $('#icumsg'); if (m) { m.className = 'msg'; m.textContent = '…'; }
+  try { const a = await icuFetch(''); const nm = a.name || a.firstname || ''; if (m) m.textContent = t('icu_ok', { n: nm ? ` – ${nm}` : '' }); }
+  catch (e) { if (m) { m.className = 'msg bad'; m.textContent = icuError(e); } }
+}
+const icuExtId = (w, key) => `dynamcore-${P.start}-w${w}-${key}`;
+function icuEvents(weeks) {
+  const td = today(), w0 = Math.max(1, curWeek()), out = [];
+  const time = (P.icsTime || '19:00') + ':00';
+  for (let w = w0; w < w0 + weeks; w++) {
+    const plan = weekPlan(P, S, w);
+    plan.slots.forEach(s => {
+      const dn = plan.monday + s.day;
+      if (s.skipped || dn < td || isDone(w, s.key)) return;
+      const ext = icuExtId(w, s.key);
+      if (S.icuSent && S.icuSent[ext]) return;
+      let name, desc, secs;
+      if (s.type === 'GROUP') { name = `DynamCore · ${slotTitle(s)}`; desc = lang() === 'nl' ? 'Groepssessie (buiten de app).' : 'Group session (outside the app).'; secs = 3600; }
+      else { const ses = buildSession(P, S, plan, s); name = `DynamCore · ${t('type_' + s.type)}`; desc = intervalsText({ ses, plan, slot: s, routine: null }); secs = ses.est * 60; }
+      out.push({ category: 'WORKOUT', type: 'WeightTraining', start_date_local: `${DN.iso(dn)}T${time}`, name, description: desc, moving_time: secs, external_id: ext });
+    });
+  }
+  return out;
+}
+async function icuSend(weeks) {
+  const m = $('#icumsg'); if (m) { m.className = 'msg'; m.textContent = '…'; }
+  const evs = icuEvents(weeks);
+  if (!evs.length) { if (m) m.textContent = t('icu_nothing'); return; }
+  try {
+    await icuFetch('/events/bulk', { method: 'POST', body: JSON.stringify(evs) });
+    S.icuSent = S.icuSent || {}; evs.forEach(e => { S.icuSent[e.external_id] = today(); }); saveAll();
+    if (m) m.textContent = t('icu_sent', { n: evs.length });
+  } catch (e) { if (m) { m.className = 'msg bad'; m.textContent = icuError(e); } }
+}
+function voiceSelect(D) {
+  if (!('speechSynthesis' in window)) return '';
+  let vs = []; try { vs = speechSynthesis.getVoices().filter(v => v.lang && v.lang.toLowerCase().startsWith(D.lang || lang())); } catch (e) { }
+  if (!vs.length) return `<p class="small muted">${t('voice_none')}</p>`;
+  return `<label class="fld"><span class="lbl">${t('voice_pick')}</span><select id="f-voicename" data-field="voiceName"><option value="">${t('voice_auto')}</option>${vs.map(v => `<option value="${esc(v.name)}"${v.name === D.voiceName ? ' selected' : ''}>${esc(v.name)} (${esc(v.lang)})</option>`).join('')}</select></label>
+    <button class="btn quiet" data-act="voicetest">${t('voice_test')}</button>`;
+}
+
 /* ---------- events ---------- */
 function weekOv(w) { return S.weekOv[w] || (S.weekOv[w] = {}); }
 document.addEventListener('click', ev => {
@@ -663,6 +736,9 @@ document.addEventListener('click', ev => {
     case 'rpe': { const f = UI.rpeSave; closeSheet(); if (f) f(+el.dataset.v); rerender(); break; }
     case 'copyint': { const r = resolveSession(); copyText(intervalsText(r), $('#cmsg'), $('#itxt')); break; }
     case 'ics': exportIcs(+el.dataset.n); break;
+    case 'icutest': icuTest(); break;
+    case 'voicetest': { const keep = P.voiceName; P.voiceName = UI.settingsD.voiceName; speak(lang() === 'nl' ? 'Dead bug. Acht per kant.' : 'Dead bug. Eight per side.'); P.voiceName = keep; break; }
+    case 'icusend': icuSend(4); break;
     case 'libcat': UI.libCat = el.dataset.v; rerender(); break;
     case 'sw': {
       const f = el.dataset.f;
@@ -720,7 +796,7 @@ document.addEventListener('change', ev => { if (ev.target.dataset && ev.target.d
 
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; if ((location.hash || '#week') === '#week') rerender(); });
 if ('serviceWorker' in navigator && location.protocol === 'https:') addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => { }); });
-if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => { }; } catch (e) { } }
+if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => { if (location.hash === '#settings') rerender(); }; } catch (e) { } }
 setInterval(() => { if (UI.sw) { const s = Math.round((Date.now() - UI.sw.t0) / 1000); const i = $('#t-' + UI.sw.f); if (i) i.value = s; } }, 250);
 
 route();
