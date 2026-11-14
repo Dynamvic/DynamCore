@@ -1,7 +1,7 @@
 'use strict';
 /* DynamCore – user interface. Data: exercises.js, engine.js, i18n.js. Everything is stored on this phone only. */
 
-const VERSION = '1.3';
+const VERSION = '1.4';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -374,7 +374,7 @@ function libList() {
 function exCard(e) {
   const L = lang();
   const warn = e.avoid.filter(a => (P.complaints || []).includes(a));
-  return `<div class="exc">${ANIMV.svg(e.id)}<div class="h"><b>${esc(e.n[L])}</b>${lvlDots(e.lvl)}</div>
+  return `<div class="exc">${ANIMV.svg(e.id)}${ANIMV.isFront(e.id) ? `<small class="muted">${t('front_view')}</small>` : ''}<div class="h"><b>${esc(e.n[L])}</b>${lvlDots(e.lvl)}</div>
     <p class="why">${esc(e.why[L])}</p><ul>${e.cue[L].map(c => `<li>${esc(c)}</li>`).join('')}</ul>
     <dl class="kv sm"><dt>${t('fault')}</dt><dd>${esc(e.fault[L])}</dd><dt>${t('equipment')}</dt><dd>${e.eq.length ? e.eq.map(x => t('eq_' + x)).join(' / ') : '–'}</dd>${e.avoid.length ? `<dt>${t('not_with')}</dt><dd class="${warn.length ? 'warn' : ''}">${e.avoid.map(a => t('cmp_' + a)).join(', ')}</dd>` : ''}</dl>
     <a href="https://www.youtube.com/results?search_query=${encodeURIComponent(e.q)}" target="_blank" rel="noopener">${t('video')}: “${esc(e.q)}” ↗</a></div>`;
