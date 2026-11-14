@@ -1,7 +1,7 @@
 'use strict';
 /* DynamCore – user interface. Data: exercises.js, engine.js, i18n.js. Everything is stored on this phone only. */
 
-const VERSION = '1.4';
+const VERSION = '1.5';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -12,7 +12,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('dc:' + k, JSON.stringify(v)); } catch (e) { } }
 };
 let P = store.get('profile', null);
-let S = Object.assign({ weekOv: {}, logs: [], tests: [], suggest: null, hideInstall: false }, store.get('state', {}));
+let S = Object.assign({ weekOv: {}, logs: [], tests: [], suggest: null, hideInstall: false, challenges: [] }, store.get('state', {}));
 const saveAll = () => { store.set('profile', P); store.set('state', S); };
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) { }
 
@@ -220,6 +220,7 @@ function vWeek() {
   const total = plan.slots.filter(s => !s.skipped).length, done = plan.slots.filter(s => isDone(w, s.key)).length;
   html += `<section class="days">${rows}</section>
     <div class="prog"><div class="lbl"><span>${t('week_progress', { a: done, b: total })}</span><span>${streakText()}</span></div><div class="bar"><i style="width:${total ? done / total * 100 : 0}%"></i></div></div>
+    <button class="btn ghost wide" data-act="grpshare">${t('share_week')}</button>
     ${installCard()}<p class="small muted disc">${t('disclaimer')}</p>`;
   return html;
 }
@@ -332,6 +333,7 @@ function vProgress() {
   let html = topbar(t('progress_title'));
   html += `<section class="card"><div class="row between"><div><span class="eyebrow">${t('cur_level')}</span><div class="lvl">${lv} · ${t('lvl_' + lv)} ${lvlDots(lv)}</div></div></div>
     <p class="small muted">${t('adj_now')}: ${['CORE', 'LEG', 'MOB'].map(x => `${t('typeS_' + x)} ${((P.adj || {})[x] || 0) > 0 ? '+' : ''}${(P.adj || {})[x] || 0}`).join(' · ')}</p></section>`;
+  html += grpSection();
   html += `<section class="card"><h3>${t('new_test', { n: UI.testW })}</h3>${testForm(rec)}<p class="msg" id="tmsg"></p></section>`;
   html += `<h2 class="h2">${t('progress_title')}</h2>` + ['T1', 'T2', 'T3', 'T4', 'T5'].map(k => `<section class="card"><h3>${k} · ${t(k.toLowerCase())}</h3>${testChart(k)}</section>`).join('');
   // completion per week
@@ -835,4 +837,5 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') addEventList
 if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => { if (location.hash === '#settings') rerender(); }; } catch (e) { } }
 setInterval(() => { if (UI.sw) { const s = Math.round((Date.now() - UI.sw.t0) / 1000); const i = $('#t-' + UI.sw.f); if (i) i.value = s; } }, 250);
 
+importChallengeFromUrl();
 route();
