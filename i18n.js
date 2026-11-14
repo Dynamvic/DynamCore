@@ -71,9 +71,10 @@ const I18N = {
     install_title: 'Installeer DynamCore', install_ios: 'Open in Safari, tik op Deel en kies Zet op beginscherm.', install_android: 'Open het Chrome-menu (⋮) en kies App installeren.', install_now: 'Installeer nu', hide: 'Verbergen',
     intervals_hdr: 'Intervals.icu',
     icu_lead: 'Plak je eigen API-sleutel (Intervals.icu → Settings → Developer Settings). Hij blijft alleen op deze telefoon.', icu_key: 'API-sleutel', icu_id: 'Atleet-ID', icu_test: 'Test verbinding', icu_send: 'Stuur volgende 4 weken',
-    icu_send_note: 'Stuurt geplande sessies (ook de groepssessie) naar je Intervals.icu-kalender. Al verstuurde sessies worden overgeslagen; wijzigingen achteraf pas je in Intervals.icu zelf aan.',
+    icu_send_note: 'Stuurt geplande sessies (ook de groepssessie) met hun load naar je Intervals.icu-kalender. Opnieuw versturen vervangt de vorige versie; overgeslagen sessies worden daar verwijderd.',
+    icu_load_hdr: 'Load per uur (voor Intervals.icu)', icu_load_expl: 'Load = waarde per uur × duur. Standaard volgens de TSS-logica (uur × IF² × 100) met een aangenomen intensiteit: romp/benen IF 0,70 → 49, mobiliteit 0,55 → 30, groepssessie 0,75 → 56. Eerste schatting: pas aan naar wat jij gebruikt.', icu_load_note: 'geschat door DynamCore', icu_deleted: '{n} verwijderd.', undo_done: 'Ongedaan maken', eq_nothing: 'geen',
     icu_setup: 'Vul je API-sleutel in bij Instellingen om sessies automatisch te versturen.', icu_privacy: 'Wie toegang heeft tot deze telefoon, kan met de sleutel je Intervals.icu-gegevens lezen. Verwijder de sleutel als je de telefoon doorgeeft.',
-    icu_ok: 'Verbinding gelukt{n}.', icu_sent: '{n} sessies verstuurd naar Intervals.icu.', icu_nothing: 'Niets nieuws om te versturen.',
+    icu_ok: 'Verbinding gelukt{n}.', icu_sent: '{n} sessies verstuurd of bijgewerkt in Intervals.icu.', icu_nothing: 'Niets nieuws om te versturen.',
     icu_err_nokey: 'Vul eerst je API-sleutel in.', icu_err_auth: 'Intervals.icu weigert de sleutel. Controleer de API-sleutel en atleet-ID.', icu_err_blocked: 'Intervals.icu laat geen rechtstreekse oproepen vanuit de app toe (of er is geen internet). Gebruik de kopieerknop per sessie.', icu_err_http: 'Intervals.icu gaf fout {s}.',
     voice_pick: 'Stem', voice_auto: 'Automatisch', voice_test: 'Test stem', voice_none: 'Geen stem gevonden voor deze taal op dit toestel.'
   },
@@ -138,9 +139,10 @@ const I18N = {
     install_title: 'Install DynamCore', install_ios: 'Open in Safari, tap Share and choose Add to Home Screen.', install_android: 'Open the Chrome menu (⋮) and choose Install app.', install_now: 'Install now', hide: 'Hide',
     intervals_hdr: 'Intervals.icu',
     icu_lead: 'Paste your own API key (Intervals.icu → Settings → Developer Settings). It stays on this phone only.', icu_key: 'API key', icu_id: 'Athlete ID', icu_test: 'Test connection', icu_send: 'Send next 4 weeks',
-    icu_send_note: 'Sends planned sessions (including the group session) to your Intervals.icu calendar. Sessions already sent are skipped; later changes you adjust in Intervals.icu itself.',
+    icu_send_note: 'Sends planned sessions (including the group session) with their load to your Intervals.icu calendar. Sending again replaces the previous version; skipped sessions are removed there.',
+    icu_load_hdr: 'Load per hour (for Intervals.icu)', icu_load_expl: 'Load = value per hour × duration. Default follows TSS logic (hours × IF² × 100) with an assumed intensity: core/legs IF 0.70 → 49, mobility 0.55 → 30, group session 0.75 → 56. First estimate: adjust to what you use.', icu_load_note: 'estimated by DynamCore', icu_deleted: '{n} removed.', undo_done: 'Undo', eq_nothing: 'none',
     icu_setup: 'Enter your API key in Settings to send sessions automatically.', icu_privacy: 'Anyone with access to this phone can read your Intervals.icu data with the key. Remove the key before handing the phone on.',
-    icu_ok: 'Connection works{n}.', icu_sent: '{n} sessions sent to Intervals.icu.', icu_nothing: 'Nothing new to send.',
+    icu_ok: 'Connection works{n}.', icu_sent: '{n} sessions sent or updated in Intervals.icu.', icu_nothing: 'Nothing new to send.',
     icu_err_nokey: 'Enter your API key first.', icu_err_auth: 'Intervals.icu rejects the key. Check the API key and athlete ID.', icu_err_blocked: 'Intervals.icu does not allow direct calls from the app (or there is no internet). Use the copy button per session.', icu_err_http: 'Intervals.icu returned error {s}.',
     voice_pick: 'Voice', voice_auto: 'Automatic', voice_test: 'Test voice', voice_none: 'No voice found for this language on this device.'
   }

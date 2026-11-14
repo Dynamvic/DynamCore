@@ -1,7 +1,7 @@
 'use strict';
 /* DynamCore – user interface. Data: exercises.js, engine.js, i18n.js. Everything is stored on this phone only. */
 
-const VERSION = '1.1';
+const VERSION = '1.2';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -53,6 +53,18 @@ const IC = {
   mute: '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>',
   watch: '⏱'
 };
+const EQIC = {
+  db: '<svg viewBox="0 0 24 24"><path d="M6.5 7v10M17.5 7v10M3.5 9.5v5M20.5 9.5v5M6.5 12h11"/></svg>',
+  kb: '<svg viewBox="0 0 24 24"><path d="M8.5 9a3.5 3.5 0 1 1 7 0"/><circle cx="12" cy="15" r="6"/></svg>',
+  band: '<svg viewBox="0 0 24 24"><path d="M4 7c4-4 12 10 16 6M4 11c4-4 12 10 16 6"/></svg>',
+  miniband: '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="8" ry="5"/><ellipse cx="12" cy="12" rx="5.5" ry="2.8"/></svg>',
+  roller: '<svg viewBox="0 0 24 24"><ellipse cx="6" cy="12" rx="2.5" ry="5"/><path d="M6 7h12M6 17h12"/><ellipse cx="18" cy="12" rx="2.5" ry="5"/></svg>',
+  ball: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M8.5 8.5c2 1.5 2 5.5 0 7M15.5 8.5c-2 1.5-2 5.5 0 7"/></svg>',
+  swiss: '<svg viewBox="0 0 24 24"><circle cx="12" cy="11" r="8"/><path d="M8 20h8"/></svg>',
+  bench: '<svg viewBox="0 0 24 24"><path d="M3 10h18M6 10v7M18 10v7M5 14h14"/></svg>',
+  gym: '<svg viewBox="0 0 24 24"><path d="M3 21V9l9-5 9 5v12M8 21v-6h8v6"/></svg>'
+};
+const eqIcons = (list, labels) => list.length ? `<span class="eqi${labels ? ' lab' : ''}">${list.map(x => `<span class="eq" title="${t('eq_' + x)}">${EQIC[x] || ''}${labels ? `<small>${t('eq_' + x)}</small>` : ''}</span>`).join('')}</span>` : '';
 
 /* ---------- small renderers ---------- */
 const chip = (act, attrs, on, label) => `<button type="button" class="chip" data-act="${act}" ${attrs} aria-pressed="${!!on}">${label}</button>`;
@@ -217,13 +229,13 @@ function slotCard(plan, s, dn) {
   let status = done ? `<span class="st ok">${IC.check} ${t('status_done')}${rpeOf(w, s.key) != null ? ` · RPE ${rpeOf(w, s.key)}` : ''}</span>` : s.skipped ? `<span class="st">${t('status_skipped')}</span>` : missed ? `<span class="st bad">${t('status_missed')}</span>` : '';
   if (s.type === 'GROUP') {
     return `<div class="slot" style="--tc:${typeColor('GROUP')}"><div class="si"><span class="tk">${t('typeS_GROUP')}</span><b>${esc(slotTitle(s))}</b>${status}
-      <div class="row sm">${done ? '' : `<button class="btn tiny" data-act="markgroup" data-w="${w}">${t('mark_done')}</button>`}<button class="btn tiny quiet" data-act="groupedit" data-w="${w}">${t('group_edit')}</button></div></div></div>`;
+      <div class="row sm">${done ? `<button class="btn tiny quiet" data-act="undone" data-w="${w}" data-k="GROUP">${t('undo_done')}</button>` : `<button class="btn tiny" data-act="markgroup" data-w="${w}">${t('mark_done')}</button>`}<button class="btn tiny quiet" data-act="groupedit" data-w="${w}">${t('group_edit')}</button></div></div></div>`;
   }
   const ses = buildSession(P, S, plan, s);
   const acts = missed ? `<div class="row sm"><button class="btn tiny quiet" data-act="movesheet" data-w="${w}" data-k="${s.key}">${t('move')}</button><button class="btn tiny quiet" data-act="skip" data-w="${w}" data-k="${s.key}">${t('skip')}</button></div>`
     : s.skipped ? `<div class="row sm"><button class="btn tiny quiet" data-act="unskip" data-w="${w}" data-k="${s.key}">${t('undo_skip')}</button></div>` : '';
   return `<div class="slot" style="--tc:${typeColor(s.type)}"><button class="si" data-act="open" data-w="${w}" data-k="${s.key}">
-    <span class="tk">${t('typeS_' + s.type)}${s.test ? ' + TEST' : ''}</span><b>${t('type_' + s.type)}</b><span class="meta">${t('est', { n: ses.est })} · ${t('style_' + ses.style)} · RPE ${RPE_TARGET[s.type]}</span>${status}</button>${acts}</div>`;
+    <span class="tk">${t('typeS_' + s.type)}${s.test ? ' + TEST' : ''}</span><b>${t('type_' + s.type)}</b><span class="meta">${t('est', { n: ses.est })} · ${t('style_' + ses.style)} · RPE ${RPE_TARGET[s.type]}</span>${eqIcons(sessionEquip(P, ses))}${status}</button>${acts}</div>`;
 }
 const rpeOf = (w, key) => { const l = S.logs.filter(x => x.w === w && x.key === key).pop(); return l ? l.rpe : null; };
 function streakText() {
@@ -260,6 +272,7 @@ function vSession() {
   html += `<section class="sesshead" style="--tc:${typeColor(ses.type)}">
     <span class="tk">${r.routine ? t('tab_routines') : `${t('week_n', { n: plan.w })} · ${dayName(slot.day, true)} ${DN.fmt(plan.monday + slot.day)}`}</span>
     <div class="meta"><b>${t('est', { n: ses.est })}</b> · ${t('style_' + ses.style)} · ${t('level')} ${lvlDots(ses.level)} · RPE ${RPE_TARGET[ses.type]}</div>
+    ${eqIcons(sessionEquip(P, ses), true)}
     ${durs.length ? `<div class="chips">${durs.map(d => chip('dur', `data-v="${d}"`, d === ses.dur, `${d} ${t('min')}`)).join('')}</div>` : ''}</section>`;
   if (ses.test) html += `<div class="card"><p><b>${t('with_test')}</b> <a href="#progress" data-act="gotest" data-w="${plan.w}">${t('go_test')}</a></p></div>`;
   if (ses.travel) html += `<p class="small muted">${t('travel_on')}</p>`;
@@ -267,13 +280,14 @@ function vSession() {
     <ol class="ex">${b.items.map(i => `<li><button class="exr" data-act="exinfo" data-id="${i.id}"><span class="n">${esc(exName(i.id))}</span><span class="dose">${fmtDose(i.dose)}</span></button>${r.routine ? '' : `<button class="iconbtn sm" data-act="swapsheet" data-id="${i.id}" data-orig="${i.orig}" aria-label="${t('swap')}">${IC.swap}</button>`}</li>`).join('')}</ol></section>`).join('');
   const done = !r.routine && isDone(plan.w, slot.key);
   html += `<div class="stick"><button class="btn wide big" data-act="guided">${IC.play}<span>${t('start_guided')}</span></button>
-    ${done ? `<p class="center ok">${IC.check} ${t('status_done')}</p>` : `<button class="btn quiet wide" data-act="rpesheet">${t('mark_done')}</button>`}</div>
+    ${done ? `<p class="center ok">${IC.check} ${t('status_done')}${rpeOf(plan.w, slot.key) != null ? ` · RPE ${rpeOf(plan.w, slot.key)}` : ''}</p><button class="btn quiet wide" data-act="undone" data-w="${plan.w}" data-k="${slot.key}">${t('undo_done')}</button>` : `<button class="btn quiet wide" data-act="rpesheet">${t('mark_done')}</button>`}</div>
     <section class="card"><h3>${t('intervals_hdr')}</h3><p class="small muted">${P.icuKey ? t('icu_send_note') : t('intervals_note')}</p><div class="row"><button class="btn ghost" data-act="copyint">${t('copy_intervals')}</button><span class="msg" id="cmsg"></span></div><pre class="itxt" id="itxt">${esc(intervalsText(r))}</pre></section>`;
   return html;
 }
 function intervalsText(r) {
   const { ses, plan, slot } = r, L = [];
   L.push(`DynamCore – ${t('type_' + ses.type)}${r.routine ? '' : ` | ${t('week_n', { n: plan.w })} ${dayName(slot.day)}`} | ${t('est', { n: ses.est })} | RPE ${RPE_TARGET[ses.type]}`);
+  const eqs = sessionEquip(P, ses); L.push(`${t('equipment')}: ${eqs.length ? eqs.map(x => t('eq_' + x)).join(', ') : t('eq_nothing')}`);
   ses.blocks.forEach(b => {
     L.push(`${t('blk_' + b.k)}${b.rounds > 1 ? ' – ' + t('rounds', { n: b.rounds }) : ''}${b.rest ? ', ' + t('rest_s', { n: b.rest }) : ''}:`);
     b.items.forEach(i => L.push(`• ${exName(i.id)}  ${fmtDose(i.dose)}`));
@@ -392,6 +406,8 @@ function vSettings() {
     + sec(t('intervals_hdr'), `<p class="small muted">${t('icu_lead')}</p>
         <label class="fld"><span class="lbl">${t('icu_key')}</span><input id="f-icukey" type="password" autocomplete="off" data-field="icuKey" value="${esc(D.icuKey || '')}"></label>
         <label class="fld"><span class="lbl">${t('icu_id')} <small>(${t('optional')})</small></span><input id="f-icuid" data-field="icuId" placeholder="0" value="${esc(D.icuId || '')}"></label>
+        <div class="fld"><span class="lbl">${t('icu_load_hdr')}</span><small class="muted">${t('icu_load_expl')}</small>
+          <div class="lph">${['CORE', 'LEG', 'MOB', 'GROUP'].map(ty => `<label class="tin"><span>${t('typeS_' + ty)}</span><input id="lph-${ty}" data-lph="${ty}" inputmode="numeric" value="${(D.loadPerHour && D.loadPerHour[ty]) || LOAD_PER_HOUR[ty]}"><span>/${lang() === 'nl' ? 'u' : 'h'}</span></label>`).join('')}</div></div>
         <div class="row"><button class="btn ghost" data-act="icutest">${t('icu_test')}</button><button class="btn" data-act="icusend">${t('icu_send')}</button></div><p class="msg" id="icumsg" aria-live="polite"></p>
         <p class="small muted">${t('icu_privacy')}</p>`)
     + sec(t('backup'), `<p class="small muted">${t('backup_note')}</p><div class="row"><button class="btn ghost" data-act="backup">${t('backup')}</button><span class="msg" id="bmsg"></span></div>
@@ -438,11 +454,12 @@ function rpeSheet(onSave, type) {
     <div class="rpe">${[...Array(11).keys()].map(i => `<button class="rpeb" data-act="rpe" data-v="${i}"><b>${i}</b><small>${t('rpe_labels')[i]}</small></button>`).join('')}</div>`);
 }
 function logSession(w, key, type, rpe, est) {
-  S.logs.push({ w, key, type, d: today(), rpe, est });
+  const log = { w, key, type, d: today(), rpe, est, prevAdj: (P.adj || {})[type] || 0 };
+  S.logs.push(log);
   let msg = '';
   if (rpe != null && !String(key).startsWith('R-') && type !== 'GROUP') {
     const r = applyRpe(P, S.logs, type, rpe);
-    if (r) msg = t(r === 'harder' ? 'adj_harder' : 'adj_easier', { t: t('typeS_' + type).toLowerCase() });
+    if (r) { log.adjChanged = true; msg = t(r === 'harder' ? 'adj_harder' : 'adj_easier', { t: t('typeS_' + type).toLowerCase() }); }
   }
   saveAll(); return msg;
 }
@@ -620,11 +637,12 @@ function icuEvents(weeks) {
       const dn = plan.monday + s.day;
       if (s.skipped || dn < td || isDone(w, s.key)) return;
       const ext = icuExtId(w, s.key);
-      if (S.icuSent && S.icuSent[ext]) return;
-      let name, desc, secs;
-      if (s.type === 'GROUP') { name = `DynamCore · ${slotTitle(s)}`; desc = lang() === 'nl' ? 'Groepssessie (buiten de app).' : 'Group session (outside the app).'; secs = 3600; }
-      else { const ses = buildSession(P, S, plan, s); name = `DynamCore · ${t('type_' + s.type)}`; desc = intervalsText({ ses, plan, slot: s, routine: null }); secs = ses.est * 60; }
-      out.push({ category: 'WORKOUT', type: 'WeightTraining', start_date_local: `${DN.iso(dn)}T${time}`, name, description: desc, moving_time: secs, external_id: ext });
+      let name, desc, mins;
+      if (s.type === 'GROUP') { name = `DynamCore · ${slotTitle(s)}`; desc = lang() === 'nl' ? 'Groepssessie (buiten de app).' : 'Group session (outside the app).'; mins = 60; }
+      else { const ses = buildSession(P, S, plan, s); name = `DynamCore · ${t('type_' + s.type)}`; desc = intervalsText({ ses, plan, slot: s, routine: null }); mins = ses.est; }
+      const load = sessionLoad(P, s.type, mins);
+      desc += `\nLoad: ${load} (${t('icu_load_note')})`;
+      out.push({ category: 'WORKOUT', type: 'WeightTraining', start_date_local: `${DN.iso(dn)}T${time}`, name, description: desc, moving_time: mins * 60, icu_training_load: load, external_id: ext, _day: dn });
     });
   }
   return out;
@@ -632,11 +650,21 @@ function icuEvents(weeks) {
 async function icuSend(weeks) {
   const m = $('#icumsg'); if (m) { m.className = 'msg'; m.textContent = '…'; }
   const evs = icuEvents(weeks);
-  if (!evs.length) { if (m) m.textContent = t('icu_nothing'); return; }
+  const td = today(), w0 = Math.max(1, curWeek()), endDay = mondayOfWeek(P, w0 + weeks) - 1;
+  S.icuSent = S.icuSent || {};
   try {
-    await icuFetch('/events/bulk', { method: 'POST', body: JSON.stringify(evs) });
-    S.icuSent = S.icuSent || {}; evs.forEach(e => { S.icuSent[e.external_id] = today(); }); saveAll();
-    if (m) m.textContent = t('icu_sent', { n: evs.length });
+    let res = [];
+    if (evs.length) res = await icuFetch('/events/bulk?upsert=true', { method: 'POST', body: JSON.stringify(evs.map(({ _day, ...x }) => x)) });
+    const byExt = {}; (Array.isArray(res) ? res : []).forEach(r => { if (r && r.external_id) byExt[r.external_id] = r.id; });
+    evs.forEach(e => { const old = S.icuSent[e.external_id]; S.icuSent[e.external_id] = { id: byExt[e.external_id] ?? (old && old.id), day: e._day }; });
+    // sessions sent earlier that are no longer in the plan for this period (skipped, removed): delete them
+    const keep = new Set(evs.map(e => e.external_id)); let del = 0;
+    for (const [ext, v] of Object.entries(S.icuSent)) {
+      if (keep.has(ext) || !v || typeof v !== 'object' || v.id == null || v.day < td || v.day > endDay) continue;
+      try { await icuFetch(`/events/${v.id}`, { method: 'DELETE' }); delete S.icuSent[ext]; del++; } catch (e) { }
+    }
+    saveAll();
+    if (m) m.textContent = evs.length || del ? t('icu_sent', { n: evs.length }) + (del ? ' ' + t('icu_deleted', { n: del }) : '') : t('icu_nothing');
   } catch (e) { if (m) { m.className = 'msg bad'; m.textContent = icuError(e); } }
 }
 function voiceSelect(D) {
@@ -737,6 +765,13 @@ document.addEventListener('click', ev => {
     case 'copyint': { const r = resolveSession(); copyText(intervalsText(r), $('#cmsg'), $('#itxt')); break; }
     case 'ics': exportIcs(+el.dataset.n); break;
     case 'icutest': icuTest(); break;
+    case 'undone': {
+      const w = +el.dataset.w, k = el.dataset.k;
+      const mine = S.logs.filter(l => l.w === w && l.key === k);
+      const last = mine[mine.length - 1];
+      if (last && last.adjChanged) { P.adj = P.adj || {}; P.adj[last.type] = last.prevAdj || 0; }
+      S.logs = S.logs.filter(l => !(l.w === w && l.key === k)); saveAll(); rerender(); break;
+    }
     case 'voicetest': { const keep = P.voiceName; P.voiceName = UI.settingsD.voiceName; speak(lang() === 'nl' ? 'Dead bug. Acht per kant.' : 'Dead bug. Eight per side.'); P.voiceName = keep; break; }
     case 'icusend': icuSend(4); break;
     case 'libcat': UI.libCat = el.dataset.v; rerender(); break;
@@ -780,6 +815,7 @@ document.addEventListener('input', ev => {
     if (k === 'accepted') rerender();
     return;
   }
+  if (tg.dataset.lph && UI.settingsD) { const v = parseInt(tg.value, 10); UI.settingsD.loadPerHour = UI.settingsD.loadPerHour || {}; if (v > 0) UI.settingsD.loadPerHour[tg.dataset.lph] = v; else delete UI.settingsD.loadPerHour[tg.dataset.lph]; return; }
   if (tg.dataset.tk) {
     const key = tg.dataset.tk; const raw = tg.value.replace(',', '.').replace(/[^0-9.\-+]/g, '');
     const val = raw === '' || isNaN(parseFloat(raw)) ? null : Math.round(parseFloat(raw) * 10) / 10;

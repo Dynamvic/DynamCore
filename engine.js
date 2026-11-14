@@ -392,3 +392,25 @@ function buildIcs(p, st, fromWeek, weeks, title, labelOf) {
   L.push('END:VCALENDAR');
   return L.join('\r\n');
 }
+
+/* ---------- equipment per session ---------- */
+function sessionEquip(p, ses) {
+  const ctx = makeCtx(p, ses.travel), out = [];
+  ses.blocks.forEach(b => b.items.forEach(i => {
+    const ex = EXMAP[i.id]; if (!ex.eq.length) return;
+    const pick = ex.eq.find(x => x !== 'gym' && ctx.eq.has(x) && (p.eq || []).includes(x)) || ex.eq.find(x => ctx.eq.has(x)) || ex.eq[0];
+    if (!out.includes(pick)) out.push(pick);
+  }));
+  const order = ['db', 'kb', 'band', 'miniband', 'roller', 'ball', 'swiss', 'bench', 'gym'];
+  return out.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+}
+
+/* ---------- training load for Intervals.icu ----------
+   load = load-per-hour x duration. Defaults follow the TSS logic (hours x IF^2 x 100) with an assumed
+   intensity factor per session type: mobility 0,55 -> 30/h, activation 0,60 -> 36/h, core/legs 0,70 -> 49/h,
+   group strength 0,75 -> 56/h, post-ride recovery 0,45 -> 20/h. FIRST ESTIMATE: the coach can change these in Settings. */
+const LOAD_PER_HOUR = { CORE: 49, LEG: 49, MOB: 30, ACT: 36, REC: 20, GROUP: 56 };
+function sessionLoad(p, type, minutes) {
+  const per = (p.loadPerHour && +p.loadPerHour[type]) || LOAD_PER_HOUR[type] || 40;
+  return Math.round(per * minutes / 60);
+}
