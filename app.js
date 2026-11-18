@@ -1,7 +1,7 @@
 'use strict';
 /* DynamCore – user interface. Data: exercises.js, engine.js, i18n.js. Everything is stored on this phone only. */
 
-const VERSION = '1.6';
+const VERSION = '1.7';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -13,6 +13,8 @@ const store = {
 };
 let P = store.get('profile', null);
 let S = Object.assign({ weekOv: {}, logs: [], tests: [], suggest: null, hideInstall: false, challenges: [] }, store.get('state', {}));
+/* v1.7: RPE scale is now 1–10. One-time migration: an old RPE 0 becomes 1 (nothing else changes). */
+if (!S.rpe110) { (S.logs || []).forEach(l => { if (l.rpe === 0) l.rpe = 1; }); S.rpe110 = true; try { localStorage.setItem('dc:state', JSON.stringify(S)); } catch (e) { } }
 const saveAll = () => { store.set('profile', P); store.set('state', S); };
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) { }
 
@@ -230,8 +232,8 @@ function slotCard(plan, s, dn) {
   const missed = !done && !s.skipped && dn < td;
   let status = done ? `<span class="st ok">${IC.check} ${t('status_done')}${rpeOf(w, s.key) != null ? ` · RPE ${rpeOf(w, s.key)}` : ''}</span>` : s.skipped ? `<span class="st">${t('status_skipped')}</span>` : missed ? `<span class="st bad">${t('status_missed')}</span>` : '';
   if (s.type === 'GROUP') {
-    return `<div class="slot" style="--tc:${typeColor('GROUP')}"><div class="si"><span class="tk">${t('typeS_GROUP')}</span><b>${esc(slotTitle(s))}</b>${status}
-      <div class="row sm">${done ? `<button class="btn tiny quiet" data-act="undone" data-w="${w}" data-k="GROUP">${t('undo_done')}</button>` : `<button class="btn tiny" data-act="markgroup" data-w="${w}">${t('mark_done')}</button>`}<button class="btn tiny quiet" data-act="groupedit" data-w="${w}">${t('group_edit')}</button></div></div></div>`;
+    return `<div class="slot" style="--tc:${typeColor('GROUP')}"><button class="si" data-act="grpopen" data-w="${w}"><span class="tk">${t('typeS_GROUP')}</span><b>${esc(slotTitle(s))}</b>${status}</button>
+      <div class="row sm">${done ? `<button class="btn tiny quiet" data-act="grpopen" data-w="${w}">${t('dn_edit_btn')}</button>` : `<button class="btn tiny" data-act="grpopen" data-w="${w}">${t('mark_done')}</button>`}<button class="btn tiny quiet" data-act="groupedit" data-w="${w}">${t('group_edit')}</button></div></div>`;
   }
   const ses = buildSession(P, S, plan, s);
   const acts = missed ? `<div class="row sm"><button class="btn tiny quiet" data-act="movesheet" data-w="${w}" data-k="${s.key}">${t('move')}</button><button class="btn tiny quiet" data-act="skip" data-w="${w}" data-k="${s.key}">${t('skip')}</button></div>`
@@ -281,8 +283,8 @@ function vSession() {
   html += ses.blocks.map(b => `<section class="blk"><div class="bh"><span>${t('blk_' + b.k)}</span>${b.rounds > 1 || b.rest ? `<span class="muted">${b.rounds > 1 ? t('rounds', { n: b.rounds }) : ''}${b.rest ? ' · ' + t('rest_s', { n: b.rest }) : ''}</span>` : ''}</div>
     <ol class="ex">${b.items.map(i => `<li><button class="exr" data-act="exinfo" data-id="${i.id}"><span class="n">${esc(exName(i.id))}</span><span class="dose">${fmtDose(i.dose)}</span></button>${r.routine ? '' : `<button class="iconbtn sm" data-act="swapsheet" data-id="${i.id}" data-orig="${i.orig}" aria-label="${t('swap')}">${IC.swap}</button>`}</li>`).join('')}</ol></section>`).join('');
   const done = !r.routine && isDone(plan.w, slot.key);
-  html += `<div class="stick"><button class="btn wide big" data-act="guided">${IC.play}<span>${t('start_guided')}</span></button>
-    ${done ? `<p class="center ok">${IC.check} ${t('status_done')}${rpeOf(plan.w, slot.key) != null ? ` · RPE ${rpeOf(plan.w, slot.key)}` : ''}</p><button class="btn quiet wide" data-act="undone" data-w="${plan.w}" data-k="${slot.key}">${t('undo_done')}</button>` : `<button class="btn quiet wide" data-act="rpesheet">${t('mark_done')}</button>`}</div>
+  html += (done ? doneBlock(plan.w, slot.key, ses.type) : '') + `<div class="stick"><button class="btn wide big" data-act="guided">${IC.play}<span>${t('start_guided')}</span></button>
+    ${done ? '' : `<button class="btn quiet wide" data-act="markdone">${t('mark_done')}</button>`}</div>
     <section class="card"><h3>${t('intervals_hdr')}</h3><p class="small muted">${P.icuKey ? t('icu_send_note') : t('intervals_note')}</p><div class="row"><button class="btn ghost" data-act="copyint">${t('copy_intervals')}</button><span class="msg" id="cmsg"></span></div><pre class="itxt" id="itxt">${esc(intervalsText(r))}</pre></section>`;
   return html;
 }
@@ -294,7 +296,7 @@ function intervalsText(r) {
     L.push(`${t('blk_' + b.k)}${b.rounds > 1 ? ' – ' + t('rounds', { n: b.rounds }) : ''}${b.rest ? ', ' + t('rest_s', { n: b.rest }) : ''}:`);
     b.items.forEach(i => L.push(`• ${exName(i.id)}  ${fmtDose(i.dose)}`));
   });
-  L.push(lang() === 'nl' ? 'Na de sessie: RPE (0–10) + commentaar.' : 'After the session: RPE (0–10) + comment.');
+  L.push(lang() === 'nl' ? 'Na de sessie: RPE (1–10) + opmerking.' : 'After the session: RPE (1–10) + remark.');
   return L.join('\n');
 }
 
@@ -409,6 +411,7 @@ function vSettings() {
     + sec(t('intervals_hdr'), `<p class="small muted">${t('icu_lead')}</p>
         <label class="fld"><span class="lbl">${t('icu_key')}</span><input id="f-icukey" type="password" autocomplete="off" data-field="icuKey" value="${esc(D.icuKey || '')}"></label>
         <label class="fld"><span class="lbl">${t('icu_id')} <small>(${t('optional')})</small></span><input id="f-icuid" data-field="icuId" placeholder="0" value="${esc(D.icuId || '')}"></label>
+        <label class="check"><input type="checkbox" id="f-icuauto" data-field="icuAuto" ${D.icuAuto ? 'checked' : ''}><span>${t('icu_auto')}</span></label><p class="small muted">${t('icu_auto_note')}</p>
         <div class="fld"><span class="lbl">${t('icu_load_hdr')}</span><small class="muted">${t('icu_load_expl')}</small>
           <div class="lph">${['CORE', 'LEG', 'MOB', 'GROUP'].map(ty => `<label class="tin"><span>${t('typeS_' + ty)}</span><input id="lph-${ty}" data-lph="${ty}" inputmode="numeric" value="${(D.loadPerHour && D.loadPerHour[ty]) || LOAD_PER_HOUR[ty]}"><span>/${lang() === 'nl' ? 'u' : 'h'}</span></label>`).join('')}</div></div>
         <div class="row"><button class="btn ghost" data-act="icutest">${t('icu_test')}</button><button class="btn" data-act="icusend">${t('icu_send')}</button></div><p class="msg" id="icumsg" aria-live="polite"></p>
@@ -451,22 +454,6 @@ function sheet(html) {
 }
 const closeSheet = () => { const d = $('#sheet'); if (d.open) d.close(); };
 $('#sheet').addEventListener('click', e => { if (e.target === e.currentTarget) closeSheet(); });
-
-function rpeSheet(onSave, type) {
-  UI.rpeSave = onSave;
-  sheet(`<h3>${t('g_rpe')}</h3><p class="small muted">${t('rpe_hint', { r: RPE_TARGET[type] || '' })}</p>
-    <div class="rpe">${[...Array(11).keys()].map(i => `<button class="rpeb" data-act="rpe" data-v="${i}"><b>${i}</b><small>${t('rpe_labels')[i]}</small></button>`).join('')}</div>`);
-}
-function logSession(w, key, type, rpe, est) {
-  const log = { w, key, type, d: today(), rpe, est, prevAdj: (P.adj || {})[type] || 0 };
-  S.logs.push(log);
-  let msg = '';
-  if (rpe != null && !String(key).startsWith('R-') && type !== 'GROUP') {
-    const r = applyRpe(P, S.logs, type, rpe);
-    if (r) { log.adjChanged = true; msg = t(r === 'harder' ? 'adj_harder' : 'adj_easier', { t: t('typeS_' + type).toLowerCase() }); }
-  }
-  saveAll(); return msg;
-}
 
 /* ---------- copy ---------- */
 async function copyText(text, msgEl, preEl) {
@@ -522,7 +509,7 @@ function buildSteps(ses) {
 function startGuided(r) {
   try { const AC = window.AudioContext || window.webkitAudioContext; if (AC) { G.ctx = G.ctx || new AC(); G.ctx.resume && G.ctx.resume(); } } catch (e) { }
   beep(1, 0.01);
-  G.r = r; G.steps = buildSteps(r.ses); G.i = 0; G.paused = false; G.done = false; G.lastBeep = null;
+  G.r = r; G.steps = buildSteps(r.ses); G.i = 0; G.paused = false; G.done = false; G.lastBeep = null; G.t0 = Date.now(); G.pms = 0; G.ps = 0;
   enter(true); render();
   $('#guided').hidden = false; document.body.classList.add('noscroll');
   wake(); clearInterval(G.iv); G.iv = setInterval(tick, 200); tick();
@@ -587,10 +574,11 @@ function render() {
 }
 function finishGuided() {
   G.done = true; clearInterval(G.iv); beep(1320, 0.7); buzz([300, 100, 300]); speak(t('g_finished'));
-  const el = $('#guided'); el.className = '';
-  el.innerHTML = `<div class="gtop"></div><div class="gmid"><div class="kind">${t('g_finished')}</div><h2 class="exn">${t('g_rpe')}</h2>
-    <div class="rpe">${[...Array(11).keys()].map(i => `<button class="rpeb" data-act="grpe" data-v="${i}"><b>${i}</b><small>${t('rpe_labels')[i]}</small></button>`).join('')}</div><p class="gmsg" id="gmsg"></p></div>
-    <div class="gbtns one"><button class="main" data-act="gstop">${t('close')}</button></div>`;
+  if (G.paused && G.ps) G.pms += Date.now() - G.ps;
+  const min = Math.max(1, Math.round((Date.now() - G.t0 - G.pms) / 60000)), r = G.r;
+  stopGuided(); rerender();
+  // session finished: date, RPE 1–10, actual duration and remark in one sheet (edits an existing log of this slot)
+  openDone({ w: r.routine ? curWeek() : r.plan.w, key: r.routine ? 'R-' + r.routine : r.slot.key, type: r.ses.type, est: r.ses.est, guidedMin: min, routine: r.routine, isNew: !!r.routine, finished: true });
 }
 
 /* ---------- calendar ---------- */
@@ -663,6 +651,7 @@ async function icuSend(weeks) {
     evs.forEach(e => { const old = S.icuSent[e.external_id]; S.icuSent[e.external_id] = { id: byExt[e.external_id] ?? (old && old.id), day: e._day }; });
     // sessions sent earlier that are no longer in the plan for this period (skipped, removed): delete them
     const keep = new Set(evs.map(e => e.external_id)); let del = 0;
+    S.logs.forEach(l => keep.add(icuExtId(l.w, l.key))); // completed sessions keep their planned workout (it is paired with the completed activity)
     for (const [ext, v] of Object.entries(S.icuSent)) {
       if (keep.has(ext) || !v || typeof v !== 'object' || v.id == null || v.day < td || v.day > endDay) continue;
       try { await icuFetch(`/events/${v.id}`, { method: 'DELETE' }); delete S.icuSent[ext]; del++; } catch (e) { }
@@ -705,7 +694,7 @@ document.addEventListener('click', ev => {
     }
     case 'wk': UI.viewWeek = Math.max(1, UI.viewWeek + +el.dataset.d); rerender(); break;
     case 'gow': UI.viewWeek = +el.dataset.w; location.hash = '#week'; break;
-    case 'open': UI.sess = { w: +el.dataset.w, key: el.dataset.k }; location.hash = '#session'; break;
+    case 'open': UI.sess = { w: +el.dataset.w, key: el.dataset.k }; if (location.hash === '#session') { route(); scrollTo(0, 0); } else location.hash = '#session'; break;
     case 'routine': UI.sess = { routine: el.dataset.r, type: UI.extraType }; location.hash = '#session'; break;
     case 'extratype': UI.extraType = el.dataset.v; rerender(); break;
     case 'travel': { const w = +el.dataset.w, o = weekOv(w); o.travel = !(o.travel ?? P.travelAlways); saveAll(); rerender(); break; }
@@ -720,7 +709,6 @@ document.addEventListener('click', ev => {
       break;
     }
     case 'moveto': { const { w, k } = UI.moveCtx, o = weekOv(w); (o.moves = o.moves || {})[k] = +el.dataset.d; saveAll(); closeSheet(); rerender(); break; }
-    case 'markgroup': { const w = +el.dataset.w; rpeSheet(rpe => { logSession(w, 'GROUP', 'GROUP', rpe, 60); }, 'GROUP'); break; }
     case 'groupedit': {
       const w = +el.dataset.w, o = weekOv(w); UI.groupW = w;
       const focus = o.groupFocus || P.group.focus;
@@ -750,32 +738,18 @@ document.addEventListener('click', ev => {
       saveAll(); closeSheet(); rerender(); break;
     }
     case 'guided': { const r = resolveSession(); if (r) startGuided(r); break; }
-    case 'gnext': if (G.paused) { G.paused = false; } advance(); break;
+    case 'gnext': if (G.paused) { G.paused = false; if (G.ps) G.pms += Date.now() - G.ps; G.ps = 0; } advance(); break;
     case 'gpause':
-      if (G.paused) { G.paused = false; const s = G.steps[G.i]; if (s.dur) G.end = Date.now() + G.left; else G.start = Date.now() - G.left; }
-      else { G.paused = true; const s = G.steps[G.i]; G.left = s.dur ? Math.max(0, G.end - Date.now()) : Date.now() - G.start; try { speechSynthesis.cancel(); } catch (e) { } }
+      if (G.paused) { G.paused = false; if (G.ps) G.pms += Date.now() - G.ps; G.ps = 0; const s = G.steps[G.i]; if (s.dur) G.end = Date.now() + G.left; else G.start = Date.now() - G.left; }
+      else { G.paused = true; G.ps = Date.now(); const s = G.steps[G.i]; G.left = s.dur ? Math.max(0, G.end - Date.now()) : Date.now() - G.start; try { speechSynthesis.cancel(); } catch (e) { } }
       render(); break;
     case 'gstop': stopGuided(); rerender(); break;
     case 'gvoice': P.voice = P.voice === false; saveAll(); if (P.voice === false) { try { speechSynthesis.cancel(); } catch (e) { } } render(); break;
-    case 'grpe': {
-      const r = G.r, v = +el.dataset.v;
-      const msg = r.routine ? (S.logs.push({ w: curWeek(), key: 'R-' + r.routine, type: r.ses.type, d: today(), rpe: v, est: r.ses.est }), saveAll(), '') : logSession(r.plan.w, r.slot.key, r.ses.type, v, r.ses.est);
-      $('#gmsg').textContent = msg || t('saved');
-      document.querySelectorAll('#guided .rpeb').forEach(b => b.setAttribute('aria-pressed', String(b === el)));
-      break;
-    }
-    case 'rpesheet': { const r = resolveSession(); rpeSheet(rpe => { const m = r.routine ? '' : logSession(r.plan.w, r.slot.key, r.ses.type, rpe, r.ses.est); if (m) setTimeout(() => alertCard(m), 50); }, r.ses.type); break; }
-    case 'rpe': { const f = UI.rpeSave; closeSheet(); if (f) f(+el.dataset.v); rerender(); break; }
+    case 'markdone': { const r = resolveSession(); if (r) openDone({ w: r.routine ? curWeek() : r.plan.w, key: r.routine ? 'R-' + r.routine : r.slot.key, type: r.ses.type, est: r.ses.est, routine: r.routine, isNew: !!r.routine }); break; }
+    case 'grpopen': { const w = +el.dataset.w; if (isDone(w, 'GROUP')) sheet(doneBlock(w, 'GROUP', 'GROUP')); else openDone({ w, key: 'GROUP', type: 'GROUP', est: 60 }); break; }
     case 'copyint': { const r = resolveSession(); copyText(intervalsText(r), $('#cmsg'), $('#itxt')); break; }
     case 'ics': exportIcs(+el.dataset.n); break;
     case 'icutest': icuTest(); break;
-    case 'undone': {
-      const w = +el.dataset.w, k = el.dataset.k;
-      const mine = S.logs.filter(l => l.w === w && l.key === k);
-      const last = mine[mine.length - 1];
-      if (last && last.adjChanged) { P.adj = P.adj || {}; P.adj[last.type] = last.prevAdj || 0; }
-      S.logs = S.logs.filter(l => !(l.w === w && l.key === k)); saveAll(); rerender(); break;
-    }
     case 'voicetest': { const keep = P.voiceName; P.voiceName = UI.settingsD.voiceName; speak(lang() === 'nl' ? 'Dead bug. Acht per kant.' : 'Dead bug. Eight per side.'); P.voiceName = keep; break; }
     case 'icusend': icuSend(4); break;
     case 'libcat': UI.libCat = el.dataset.v; rerender(); break;

@@ -83,6 +83,13 @@ svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-l
 .row.between{justify-content:space-between}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px 16px;display:grid;gap:10px;min-width:0}
 .card.ok{border-color:var(--ok)}
+.dn{display:grid;gap:14px}
+.dn .fld{display:grid;gap:6px}
+textarea.note{font-family:inherit;font-size:16px;min-height:90px;resize:vertical}
+.donebox{border-color:var(--ok)}
+.donebox .between{justify-content:space-between;align-items:center;flex-wrap:nowrap}
+.note-view{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;padding:8px 10px;border-left:3px solid var(--ok);background:var(--bg);border-radius:8px}
+.eyebrow.ok{color:var(--ok)}
 .card.warnc{border-color:var(--warn)}
 .card.notice{background:var(--soft)}
 .msg{font-size:14px;color:var(--ok);min-height:1.2em}
@@ -307,5 +314,6 @@ nav.tabs a[aria-current]{color:var(--accent)}
 <script src="access.js"></script>
 <script src="group.js"></script>
 <script src="app.js"></script>
+<script src="done.js"></script>
 </body>
 </html>
