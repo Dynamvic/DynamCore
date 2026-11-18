@@ -1,7 +1,7 @@
 'use strict';
 /* DynamCore – user interface. Data: exercises.js, engine.js, i18n.js. Everything is stored on this phone only. */
 
-const VERSION = '1.5';
+const VERSION = '1.6';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -17,7 +17,7 @@ const saveAll = () => { store.set('profile', P); store.set('state', S); };
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) { }
 
 /* ---------- language ---------- */
-const lang = () => (P && P.lang) || (UI.wz && UI.wz.d.lang) || 'nl';
+const lang = () => (P && P.lang) || (UI.wz && UI.wz.d.lang) || UI.lockLang || 'nl';
 function t(k, v) {
   let s = (I18N[lang()] && I18N[lang()][k]) ?? I18N.nl[k] ?? k;
   if (v && typeof s === 'string') for (const x in v) s = s.split(`{${x}}`).join(v[x]);
@@ -78,7 +78,7 @@ function topbar(title, opts = {}) {
 /* ---------- profile defaults & fields (shared by wizard and settings) ---------- */
 function defaultProfile() {
   const td = today(), mon = DN.dow(td) === 0 ? td : DN.monday(td) + 7;
-  return { lang: 'nl', accepted: false, name: '', rider: ['road'], complaints: [], eq: [], perWeek: 3, days: [0, 3, 5], group: { on: false, day: 1, focus: ['legs'] },
+  return { lang: UI.lockLang || 'nl', accepted: false, name: '', rider: ['road'], complaints: [], eq: [], perWeek: 3, days: [0, 3, 5], group: { on: false, day: 1, focus: ['legs'] },
     hardBike: [], dur: 30, start: DN.iso(mon), rk: 4, races: [], icsTime: '19:00', level: null, adj: {}, blocked: [], voice: true, travelAlways: false, phaseOverride: 'auto', paused: null };
 }
 const OPT = {
@@ -202,6 +202,7 @@ function vWeek() {
     <button class="iconbtn" data-act="wk" data-d="-1" aria-label="-1" ${w <= 1 ? 'disabled' : ''}>${IC.left}</button>
     <div><div class="big">${t('week_n', { n: w })}</div><div class="sub">${DN.fmt(plan.monday)} – ${DN.fmt(plan.monday + 6)} ${pills}</div></div>
     <button class="iconbtn" data-act="wk" data-d="1" aria-label="+1">${IC.right}</button></section>`;
+  html += accExpiryWarning();
   if (cw < 1 && w === 1) html += `<div class="card"><p>${t('not_started', { d: DN.fmtY(startNum(P)) })}</p></div>`;
   if (S.suggest && S.suggest !== P.level) html += `<div class="card ok"><p>${t('suggest_level', { l: S.suggest, name: t('lvl_' + S.suggest) })}</p><div class="row"><button class="btn" data-act="acceptlvl">${t('accept')}</button><button class="btn quiet" data-act="declinelvl">${t('decline')}</button></div></div>`;
   const testSlot = plan.slots.find(s => s.test);
@@ -415,7 +416,7 @@ function vSettings() {
     + sec(t('backup'), `<p class="small muted">${t('backup_note')}</p><div class="row"><button class="btn ghost" data-act="backup">${t('backup')}</button><span class="msg" id="bmsg"></span></div>
         <textarea id="restore" placeholder="${t('restore_ph')}"></textarea><button class="btn quiet" data-act="restore">${t('restore')}</button>`)
     + sec(t('reset'), `<button class="btn danger" data-act="reset">${UI.resetArmed ? t('reset_confirm') : t('reset')}</button>`)
-    + sec(t('about'), `<picture class="logo-mid"><source srcset="icons/logo-light.png" media="(prefers-color-scheme: dark)"><img src="icons/logo-dark.png" alt="DynamVic Cycling coach"></picture><p class="small">${t('disclaimer')}</p><p class="small muted">DynamCore · ${t('version')} ${VERSION}</p>`);
+    + sec(t('about'), `<picture class="logo-mid"><source srcset="icons/logo-light.png" media="(prefers-color-scheme: dark)"><img src="icons/logo-dark.png" alt="DynamVic Cycling coach"></picture><p class="small">${t('disclaimer')}</p><p class="small muted">DynamCore · ${t('version')} ${VERSION}</p>${accInfoCard()}`);
 }
 
 /* ---------- install card ---------- */
@@ -431,6 +432,7 @@ function installCard() {
 /* ---------- router ---------- */
 const VIEWS = { week: vWeek, plan: vPlan, routines: vRoutines, progress: vProgress, library: vLibrary, settings: vSettings, session: vSession };
 function route() {
+  if (ACT.state !== 'ok') { $('#view').innerHTML = ACT.state === 'checking' ? '' : vLock(); $('nav.tabs').hidden = true; return; }
   let h = (location.hash || '#week').slice(1);
   if (!P) h = 'wizard';
   const html = h === 'wizard' ? vWizard() : (VIEWS[h] || vWeek)();
@@ -837,5 +839,4 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') addEventList
 if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => { if (location.hash === '#settings') rerender(); }; } catch (e) { } }
 setInterval(() => { if (UI.sw) { const s = Math.round((Date.now() - UI.sw.t0) / 1000); const i = $('#t-' + UI.sw.f); if (i) i.value = s; } }, 250);
 
-importChallengeFromUrl();
-route();
+checkActivation().then(() => { importChallengeFromUrl(); route(); });

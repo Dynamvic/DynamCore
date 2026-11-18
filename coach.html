@@ -45,12 +45,42 @@ td.rk{font-family:var(--display);font-weight:800}
 .bar{height:8px;border-radius:4px;background:var(--soft);overflow:hidden;min-width:80px}.bar i{display:block;height:100%;background:var(--accent)}
 .chl{display:grid;gap:8px}
 .chi{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;border-bottom:1px solid var(--line);padding-bottom:8px}
+details{display:grid;gap:10px}details summary{cursor:pointer;font-weight:600}
 img.rank{width:100%;max-width:540px;border-radius:14px;border:1px solid var(--line)}
 </style>
 </head>
 <body>
 <main>
-  <header><img class="l" src="icons/logo-dark.png" alt="DynamVic Cycling coach"><img class="d" src="icons/logo-light.png" alt="DynamVic Cycling coach"><div><h1>DynamCore Coach</h1><p class="small muted">Uitdagingen maken en de ranking bijhouden. Alles blijft in deze browser.</p></div></header>
+  <header><img class="l" src="icons/logo-dark.png" alt="DynamVic Cycling coach"><img class="d" src="icons/logo-light.png" alt="DynamVic Cycling coach"><div><h1>DynamCore Coach</h1><p class="small muted">Toegang, uitdagingen en ranking. Alles blijft in deze browser.</p></div></header>
+
+  <section class="card" id="acc" hidden>
+    <h2>0 · Toegang (activatie per toestel)</h2>
+    <div id="k-none">
+      <p class="small muted">Eenmalig: maak je sleutelpaar aan. De geheime sleutel blijft enkel in deze browser. De publieke sleutel (key.js) upload je naar GitHub; zonder key.js blijft de app voor iedereen op slot.</p>
+      <div class="row"><button class="btn" id="k-make">Maak sleutels aan</button></div>
+      <details><summary class="small">Ik heb al een back-up van mijn sleutel</summary>
+        <div class="grid2"><label>Back-up<textarea id="k-imp" placeholder="DCK1.…"></textarea></label><label>Wachtwoord<input id="k-imppw" type="password" autocomplete="off"></label></div>
+        <button class="btn quiet" id="k-import">Zet sleutel terug</button></details>
+    </div>
+    <div id="k-have" hidden>
+      <div class="row"><button class="btn ghost" id="k-dl">Download key.js</button><span class="small muted">Upload key.js naar je GitHub-repository, naast index.html. Opnieuw doen na elke intrekking.</span></div>
+      <details><summary class="small">Back-up van je geheime sleutel (sterk aangeraden)</summary>
+        <p class="small muted">Wis je deze browser, dan ben je je sleutel kwijt en moet iedereen opnieuw geactiveerd worden. Bewaar de back-up op een veilige plek (bv. wachtwoordbeheerder) met een sterk wachtwoord.</p>
+        <div class="grid2"><label>Wachtwoord (min. 10 tekens)<input id="k-pw" type="password" autocomplete="new-password"></label></div>
+        <button class="btn quiet" id="k-export">Maak back-up</button><pre id="k-bak" hidden></pre></details>
+      <h2 style="font-size:18px;margin-top:6px">Atleet activeren</h2>
+      <div class="grid2">
+        <label>Naam<input id="a-n" maxlength="40" placeholder="Voornaam"></label>
+        <label>Toestelcode<input id="a-d" placeholder="ABCD-EFGH-JKLM" autocapitalize="characters"></label>
+        <label>Geldig tot en met<input type="date" id="a-e"></label>
+      </div>
+      <button class="btn" id="a-make">Maak activatiecode</button><p class="msg" id="a-msg"></p>
+      <div id="a-out" hidden><pre id="a-text"></pre><div class="row"><button class="btn ghost" id="a-copy">Kopieer bericht</button><span class="msg" id="a-cmsg"></span></div></div>
+      <h2 style="font-size:18px;margin-top:6px">Geactiveerde toestellen</h2>
+      <div class="tablebox"><table><thead><tr><th>Naam</th><th>Toestel</th><th>Tot</th><th>Status</th><th></th></tr></thead><tbody id="a-list"></tbody></table></div>
+      <p class="small muted" id="a-rev"></p>
+    </div>
+  </section>
 
   <section class="card">
     <h2>1 · Nieuwe uitdaging</h2>
@@ -205,6 +235,70 @@ $('#r-img').onclick = async () => {
   $('#r-image').src = cv.toDataURL('image/png'); $('#r-imgout').hidden = false;
 };
 renderAll();
+
+/* ---------- 0 · access keys and activation ---------- */
+const bx = { enc: buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+  dec: s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0)) };
+let KP = store.get('keys', null), ACTS = store.get('acts', []), REV = store.get('revoked', []);
+const saveAcc = () => { store.set('keys', KP); store.set('acts', ACTS); store.set('revoked', REV); };
+const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+(() => { const d = new Date(); $('#a-e').value = `${d.getFullYear() + 1}-12-31`; })();
+function accRender() {
+  $('#k-none').hidden = !!KP; $('#k-have').hidden = !KP;
+  const td = todayIso();
+  $('#a-list').innerHTML = ACTS.map((a, i) => { const rev = REV.includes(a.d), exp = a.e && a.e < td;
+    return `<tr><td>${esc(a.n)}</td><td><code>${esc(a.d)}</code></td><td>${fmt(a.e) || '–'}</td><td>${rev ? 'Ingetrokken' : exp ? 'Verlopen' : 'Actief'}</td><td>${rev ? `<button class="btn tiny quiet" data-unrev="${esc(a.d)}">Herstel</button>` : `<button class="btn tiny quiet" data-rev="${esc(a.d)}">Intrekken</button>`}</td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">Nog geen activaties.</td></tr>';
+  $('#a-rev').textContent = REV.length ? `Ingetrokken: ${REV.length}. Download key.js opnieuw en upload hem naar GitHub; de intrekking werkt zodra de atleet de app opent met internet.` : '';
+}
+$('#k-make').onclick = async () => {
+  const k = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const priv = await crypto.subtle.exportKey('jwk', k.privateKey), pub = await crypto.subtle.exportKey('jwk', k.publicKey);
+  KP = { priv, pub: { kty: pub.kty, crv: pub.crv, x: pub.x, y: pub.y }, made: todayIso() }; saveAcc(); accRender();
+};
+function keyJs() {
+  return `/* DynamCore – publieke sleutel van de coach (mag openbaar staan). Gemaakt op coach.html op ${KP.made}.\n   DC_REVOKED: toestelcodes waarvan de toegang is ingetrokken. */\nconst DC_KEY = ${JSON.stringify(KP.pub)};\nconst DC_REVOKED = ${JSON.stringify(REV)};\n`;
+}
+$('#k-dl').onclick = () => { const u = URL.createObjectURL(new Blob([keyJs()], { type: 'text/javascript' })); const a = document.createElement('a'); a.href = u; a.download = 'key.js'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 3000); };
+async function pwKey(pw, salt) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 250000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+$('#k-export').onclick = async () => {
+  const pw = $('#k-pw').value; if (pw.length < 10) { alertMsg('#k-bak', 'Kies een wachtwoord van minstens 10 tekens.'); return; }
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await pwKey(pw, salt), new TextEncoder().encode(JSON.stringify({ KP, ACTS, REV })));
+  alertMsg('#k-bak', 'DCK1.' + bx.enc(new TextEncoder().encode(JSON.stringify({ s: bx.enc(salt), iv: bx.enc(iv), c: bx.enc(ct) }))));
+};
+function alertMsg(sel, txt) { const el = $(sel); el.hidden = false; el.textContent = txt; }
+$('#k-import').onclick = async () => {
+  try {
+    const raw = $('#k-imp').value.trim().replace(/^DCK1\./, ''), o = JSON.parse(new TextDecoder().decode(bx.dec(raw)));
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bx.dec(o.iv) }, await pwKey($('#k-imppw').value, bx.dec(o.s)), bx.dec(o.c));
+    const d = JSON.parse(new TextDecoder().decode(pt)); KP = d.KP; ACTS = d.ACTS || []; REV = d.REV || []; saveAcc(); accRender();
+  } catch (e) { $('#k-imp').value = ''; $('#k-imp').placeholder = 'Back-up of wachtwoord klopt niet.'; }
+};
+$('#a-make').onclick = async () => {
+  const m = $('#a-msg'); m.className = 'msg bad';
+  const n = $('#a-n').value.trim(), d = $('#a-d').value.trim().toUpperCase().replace(/[^A-Z0-9]/g, ''), e = $('#a-e').value;
+  if (!n) return m.textContent = 'Vul de naam in.';
+  if (d.length !== 12) return m.textContent = 'De toestelcode heeft 12 tekens (bv. ABCD-EFGH-JKLM).';
+  const dev = `${d.slice(0, 4)}-${d.slice(4, 8)}-${d.slice(8)}`;
+  const pay = bx.enc(new TextEncoder().encode(JSON.stringify({ d: dev, n, e: e || null, i: todayIso() })));
+  const key = await crypto.subtle.importKey('jwk', KP.priv, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(pay));
+  const code = `DCA1.${pay}.${bx.enc(sig)}`;
+  ACTS = ACTS.filter(a => a.d !== dev); ACTS.push({ n, d: dev, e: e || null, i: todayIso() }); REV = REV.filter(x => x !== dev); saveAcc(); accRender();
+  $('#a-text').textContent = `Hoi ${n}, hier is je activatiecode voor DynamCore. Open de app, plak de code bij stap 2 en tik op Activeer. Ze werkt enkel op jouw toestel.\n\n${code}`;
+  $('#a-out').hidden = false; m.className = 'msg'; m.textContent = `Activatiecode gemaakt voor ${n}${e ? ', geldig tot ' + fmt(e) : ''}.`;
+};
+$('#a-copy').onclick = () => copy($('#a-text').textContent, $('#a-cmsg'));
+document.addEventListener('click', e => {
+  const r = e.target.closest('[data-rev]'); if (r) { if (!REV.includes(r.dataset.rev)) REV.push(r.dataset.rev); saveAcc(); accRender(); }
+  const u = e.target.closest('[data-unrev]'); if (u) { REV = REV.filter(x => x !== u.dataset.unrev); saveAcc(); accRender(); }
+});
+const ACCESS_ENABLED = false; /* lock parked: set to true to show section 0 */
+$('#acc').hidden = !ACCESS_ENABLED;
+accRender();
 </script>
 </body>
 </html>
