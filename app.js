@@ -1,7 +1,7 @@
 'use strict';
 /* DynamCore – user interface. Data: exercises.js, engine.js, i18n.js. Everything is stored on this phone only. */
 
-const VERSION = '1.7';
+const VERSION = '1.8';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -233,13 +233,21 @@ function slotCard(plan, s, dn) {
   let status = done ? `<span class="st ok">${IC.check} ${t('status_done')}${rpeOf(w, s.key) != null ? ` · RPE ${rpeOf(w, s.key)}` : ''}</span>` : s.skipped ? `<span class="st">${t('status_skipped')}</span>` : missed ? `<span class="st bad">${t('status_missed')}</span>` : '';
   if (s.type === 'GROUP') {
     return `<div class="slot" style="--tc:${typeColor('GROUP')}"><button class="si" data-act="grpopen" data-w="${w}"><span class="tk">${t('typeS_GROUP')}</span><b>${esc(slotTitle(s))}</b>${status}</button>
-      <div class="row sm">${done ? `<button class="btn tiny quiet" data-act="grpopen" data-w="${w}">${t('dn_edit_btn')}</button>` : `<button class="btn tiny" data-act="grpopen" data-w="${w}">${t('mark_done')}</button>`}<button class="btn tiny quiet" data-act="groupedit" data-w="${w}">${t('group_edit')}</button></div></div>`;
+      <div class="row sm">${done ? `<button class="btn tiny quiet" data-act="grpopen" data-w="${w}">${t('dn_edit_btn')}</button>` : s.skipped ? '' : `<button class="btn tiny" data-act="grpopen" data-w="${w}">${t('mark_done')}</button>`}${slotActs(plan, s, dn, done, true)}<button class="btn tiny quiet" data-act="groupedit" data-w="${w}">${t('group_edit')}</button></div></div>`;
   }
   const ses = buildSession(P, S, plan, s);
-  const acts = missed ? `<div class="row sm"><button class="btn tiny quiet" data-act="movesheet" data-w="${w}" data-k="${s.key}">${t('move')}</button><button class="btn tiny quiet" data-act="skip" data-w="${w}" data-k="${s.key}">${t('skip')}</button></div>`
-    : s.skipped ? `<div class="row sm"><button class="btn tiny quiet" data-act="unskip" data-w="${w}" data-k="${s.key}">${t('undo_skip')}</button></div>` : '';
+  const acts = slotActs(plan, s, dn, done);
   return `<div class="slot" style="--tc:${typeColor(s.type)}"><button class="si" data-act="open" data-w="${w}" data-k="${s.key}">
     <span class="tk">${t('typeS_' + s.type)}${s.test ? ' + TEST' : ''}</span><b>${t('type_' + s.type)}</b><span class="meta">${t('est', { n: ses.est })} · ${t('style_' + ses.style)} · RPE ${RPE_TARGET[s.type]}</span>${eqIcons(sessionEquip(P, ses))}${status}</button>${acts}</div>`;
+}
+/* move / skip: for every session that is not done (missed, today or later). Moving stays within the same week. */
+function moveDays(plan, s) { const td = today(); return [0, 1, 2, 3, 4, 5, 6].filter(d => d !== s.day && plan.monday + d >= td); }
+function slotActs(plan, s, dn, done, inline) {
+  if (done) return '';
+  const w = plan.w;
+  const b = s.skipped ? `<button class="btn tiny quiet" data-act="unskip" data-w="${w}" data-k="${s.key}">${t('undo_skip')}</button>`
+    : `${moveDays(plan, s).length ? `<button class="btn tiny quiet" data-act="movesheet" data-w="${w}" data-k="${s.key}">${t('move')}</button>` : ''}<button class="btn tiny quiet" data-act="skip" data-w="${w}" data-k="${s.key}">${t('skip')}</button>`;
+  return inline ? b : `<div class="row sm">${b}</div>`;
 }
 const rpeOf = (w, key) => { const l = S.logs.filter(x => x.w === w && x.key === key).pop(); return l ? l.rpe : null; };
 function streakText() {
@@ -284,7 +292,8 @@ function vSession() {
     <ol class="ex">${b.items.map(i => `<li><button class="exr" data-act="exinfo" data-id="${i.id}"><span class="n">${esc(exName(i.id))}</span><span class="dose">${fmtDose(i.dose)}</span></button>${r.routine ? '' : `<button class="iconbtn sm" data-act="swapsheet" data-id="${i.id}" data-orig="${i.orig}" aria-label="${t('swap')}">${IC.swap}</button>`}</li>`).join('')}</ol></section>`).join('');
   const done = !r.routine && isDone(plan.w, slot.key);
   html += (done ? doneBlock(plan.w, slot.key, ses.type) : '') + `<div class="stick"><button class="btn wide big" data-act="guided">${IC.play}<span>${t('start_guided')}</span></button>
-    ${done ? '' : `<button class="btn quiet wide" data-act="markdone">${t('mark_done')}</button>`}</div>
+    ${done ? '' : `<button class="btn quiet wide" data-act="markdone">${t('mark_done')}</button>`}
+    ${done || r.routine ? '' : `<div class="row center">${slotActs(plan, slot, plan.monday + slot.day, false, true)}</div>`}</div>
     <section class="card"><h3>${t('intervals_hdr')}</h3><p class="small muted">${P.icuKey ? t('icu_send_note') : t('intervals_note')}</p><div class="row"><button class="btn ghost" data-act="copyint">${t('copy_intervals')}</button><span class="msg" id="cmsg"></span></div><pre class="itxt" id="itxt">${esc(intervalsText(r))}</pre></section>`;
   return html;
 }
@@ -628,16 +637,47 @@ function icuEvents(weeks) {
     plan.slots.forEach(s => {
       const dn = plan.monday + s.day;
       if (s.skipped || dn < td || isDone(w, s.key)) return;
-      const ext = icuExtId(w, s.key);
-      let name, desc, mins;
-      if (s.type === 'GROUP') { name = `DynamCore · ${slotTitle(s)}`; desc = lang() === 'nl' ? 'Groepssessie (buiten de app).' : 'Group session (outside the app).'; mins = 60; }
-      else { const ses = buildSession(P, S, plan, s); name = `DynamCore · ${t('type_' + s.type)}`; desc = intervalsText({ ses, plan, slot: s, routine: null }); mins = ses.est; }
-      const load = sessionLoad(P, s.type, mins);
-      desc += `\nLoad: ${load} (${t('icu_load_note')})`;
-      out.push({ category: 'WORKOUT', type: 'WeightTraining', start_date_local: `${DN.iso(dn)}T${time}`, name, description: desc, moving_time: mins * 60, icu_training_load: load, external_id: ext, _day: dn });
+      out.push(icuEventFor(plan, s, w));
     });
   }
   return out;
+}
+function icuEventFor(plan, s, w) {
+  const dn = plan.monday + s.day, time = (P.icsTime || '19:00') + ':00';
+  let name, desc, mins;
+  if (s.type === 'GROUP') { name = `DynamCore · ${slotTitle(s)}`; desc = lang() === 'nl' ? 'Groepssessie (buiten de app).' : 'Group session (outside the app).'; mins = 60; }
+  else { const ses = buildSession(P, S, plan, s); name = `DynamCore · ${t('type_' + s.type)}`; desc = intervalsText({ ses, plan, slot: s, routine: null }); mins = ses.est; }
+  const load = sessionLoad(P, s.type, mins);
+  desc += `\nLoad: ${load} (${t('icu_load_note')})`;
+  return { category: 'WORKOUT', type: 'WeightTraining', start_date_local: `${DN.iso(dn)}T${time}`, name, description: desc, moving_time: mins * 60, icu_training_load: load, external_id: icuExtId(w, s.key), _day: dn };
+}
+/* One session moved / skipped / un-skipped: update only that planned workout in Intervals.icu.
+   Skipped → planned workout deleted. Moved or back on → upserted on its external_id (same workout, new date).
+   A session that was never sent and lies outside the period sent so far is left for the next "send plan". */
+async function icuSyncSlot(w, key) {
+  if (!P.icuKey || !String(P.icuKey).trim()) return;
+  const ext = icuExtId(w, key), sent = (S.icuSent || {})[ext];
+  const plan = weekPlan(P, S, w), s = plan.slots.find(x => x.key === key); if (!s) return;
+  const dn = plan.monday + s.day, td = today();
+  try {
+    if (s.skipped || isDone(w, key)) {
+      if (!sent || sent.id == null) return;
+      await icuFetch(`/events/${sent.id}`, { method: 'DELETE' }); delete S.icuSent[ext]; saveAll();
+      return toast(t('mv_icu_deleted'));
+    }
+    if (dn < td) return;
+    if (!sent && !(S.icuSentUntil && dn <= S.icuSentUntil)) return toast(t('mv_icu_later'));
+    const { _day, ...ev } = icuEventFor(plan, s, w);
+    const res = await icuFetch('/events/bulk?upsert=true', { method: 'POST', body: JSON.stringify([ev]) });
+    const r0 = Array.isArray(res) ? res.find(x => x && x.external_id === ext) : null;
+    S.icuSent = S.icuSent || {}; S.icuSent[ext] = { id: r0 ? r0.id : sent && sent.id, day: dn }; saveAll();
+    toast(t('mv_icu_ok', { d: `${dayName(s.day, true)} ${DN.fmt(dn)}` }));
+  } catch (e) { toast(icuError(e), true); }
+}
+function toast(msg, bad) {
+  let el = $('#toast'); if (!el) { el = document.createElement('div'); el.id = 'toast'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
+  el.className = 'toast' + (bad ? ' bad' : ''); el.textContent = msg; el.hidden = false;
+  clearTimeout(toast.tm); toast.tm = setTimeout(() => { el.hidden = true; }, bad ? 7000 : 3500);
 }
 async function icuSend(weeks) {
   const m = $('#icumsg'); if (m) { m.className = 'msg'; m.textContent = '…'; }
@@ -656,7 +696,7 @@ async function icuSend(weeks) {
       if (keep.has(ext) || !v || typeof v !== 'object' || v.id == null || v.day < td || v.day > endDay) continue;
       try { await icuFetch(`/events/${v.id}`, { method: 'DELETE' }); delete S.icuSent[ext]; del++; } catch (e) { }
     }
-    saveAll();
+    S.icuSentUntil = Math.max(S.icuSentUntil || 0, endDay); saveAll();
     if (m) m.textContent = evs.length || del ? t('icu_sent', { n: evs.length }) + (del ? ' ' + t('icu_deleted', { n: del }) : '') : t('icu_nothing');
   } catch (e) { if (m) { m.className = 'msg bad'; m.textContent = icuError(e); } }
 }
@@ -699,16 +739,27 @@ document.addEventListener('click', ev => {
     case 'extratype': UI.extraType = el.dataset.v; rerender(); break;
     case 'travel': { const w = +el.dataset.w, o = weekOv(w); o.travel = !(o.travel ?? P.travelAlways); saveAll(); rerender(); break; }
     case 'togrec': { const w = +el.dataset.w, o = weekOv(w); o.rec = !isRecovery(P, S, w); saveAll(); rerender(); break; }
-    case 'skip': { const o = weekOv(+el.dataset.w); (o.skips = o.skips || {})[el.dataset.k] = true; saveAll(); rerender(); break; }
-    case 'unskip': { const o = weekOv(+el.dataset.w); if (o.skips) delete o.skips[el.dataset.k]; saveAll(); rerender(); break; }
+    case 'skip': { const w = +el.dataset.w, k = el.dataset.k, o = weekOv(w); (o.skips = o.skips || {})[k] = true; saveAll(); rerender(); icuSyncSlot(w, k); break; }
+    case 'unskip': { const w = +el.dataset.w, k = el.dataset.k, o = weekOv(w); if (o.skips) delete o.skips[k]; saveAll(); rerender(); icuSyncSlot(w, k); break; }
     case 'movesheet': {
-      const w = +el.dataset.w, k = el.dataset.k, mon = mondayOfWeek(P, w), td = today();
-      const opts = [0, 1, 2, 3, 4, 5, 6].filter(d => mon + d >= td);
+      const w = +el.dataset.w, k = el.dataset.k, plan = weekPlan(P, S, w), slot = plan.slots.find(x => x.key === k); if (!slot) break;
+      const o = weekOv(w), moved = o.moves && o.moves[k] != null;
+      let orig = null;
+      if (moved) { const keep = o.moves[k]; delete o.moves[k]; const p0 = weekPlan(P, S, w).slots.find(x => x.key === k); orig = p0 ? p0.day : null; o.moves[k] = keep; }
       UI.moveCtx = { w, k };
-      sheet(`<h3>${t('move_to')}</h3>${opts.length ? `<div class="chips col">${opts.map(d => chip('moveto', `data-d="${d}"`, false, `${dayName(d, true)} ${DN.fmt(mon + d)}`)).join('')}</div>` : `<p class="muted">–</p>`}`);
+      const others = d => plan.slots.filter(x => x.day === d && x.key !== k && !x.skipped).map(x => t('typeS_' + x.type)).join(', ');
+      const opts = moveDays(plan, slot);
+      sheet(`<h3>${t('move_to')}</h3><p class="small muted">${esc(slotTitle(slot))} · ${dayName(slot.day, true)} ${DN.fmt(plan.monday + slot.day)}</p>
+        ${opts.length ? `<div class="chips col">${opts.map(d => chip('moveto', `data-d="${d}"`, false, `${dayName(d, true)} ${DN.fmt(plan.monday + d)}${d === orig ? ' · ' + t('mv_orig') : ''}${others(d) ? ` <small class="muted">(${t('mv_also')}: ${esc(others(d))})</small>` : ''}`)).join('')}</div>` : `<p class="muted">${t('mv_none')}</p>`}
+        <p class="small muted">${t('mv_week_only')}${P.icuKey ? ' ' + t('mv_icu') : ''}</p>`);
       break;
     }
-    case 'moveto': { const { w, k } = UI.moveCtx, o = weekOv(w); (o.moves = o.moves || {})[k] = +el.dataset.d; saveAll(); closeSheet(); rerender(); break; }
+    case 'moveto': {
+      const { w, k } = UI.moveCtx, o = weekOv(w), d = +el.dataset.d;
+      if (k !== 'GROUP') { const plan = weekPlan(P, S, w); const keep = (o.moves || {})[k]; if (o.moves) delete o.moves[k]; const base = weekPlan(P, S, w).slots.find(x => x.key === k); if (keep != null) o.moves[k] = keep; if (base && base.day === d) { if (o.moves) delete o.moves[k]; saveAll(); closeSheet(); rerender(); icuSyncSlot(w, k); break; } }
+      (o.moves = o.moves || {})[k] = d; if (k === 'GROUP' && d === +P.group.day) delete o.moves.GROUP;
+      saveAll(); closeSheet(); rerender(); icuSyncSlot(w, k); break;
+    }
     case 'groupedit': {
       const w = +el.dataset.w, o = weekOv(w); UI.groupW = w;
       const focus = o.groupFocus || P.group.focus;

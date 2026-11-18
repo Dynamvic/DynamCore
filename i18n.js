@@ -23,6 +23,8 @@ const I18N = {
     dn_linked: 'Gekoppeld aan Intervals.icu (laatst verstuurd {d})', dn_linked_watch: '· horloge-activiteit', dn_edit_btn: 'Bewerk', dn_send: 'Stuur naar Intervals.icu', dn_resend: 'Opnieuw sturen',
     dn_undo_q: 'Deze sessie staat ook in Intervals.icu. Daar ook verwijderen? (Bij een horloge-activiteit worden alleen RPE en opmerking weggehaald, de activiteit zelf blijft.)', dn_undo_yes: 'Ja, ook in Intervals.icu', dn_undo_no: 'Nee, alleen in de app', dn_deleted: 'Verwijderd in Intervals.icu.',
     icu_auto: 'Voltooide sessies automatisch naar Intervals.icu sturen', icu_auto_note: 'Zoekt eerst een krachtactiviteit van je horloge op die dag en voegt daar RPE en opmerking aan toe. Geen gevonden? Dan maakt de app een voltooide activiteit aan.',
+    mv_orig: 'oorspronkelijke dag', mv_also: 'ook', mv_none: 'Geen andere dag meer vrij deze week. Overslaan kan wel.', mv_week_only: 'Verplaatsen kan binnen dezelfde week, naar vandaag of later. Let op: liefst geen twee zware sessies (romp/benen) kort na elkaar.', mv_icu: 'De geplande training in Intervals.icu verschuift mee.',
+    mv_icu_ok: 'Intervals.icu bijgewerkt: nu op {d}.', mv_icu_deleted: 'Geplande training verwijderd uit Intervals.icu.', mv_icu_later: 'Bewaard. Deze sessie gaat mee met de volgende keer "Stuur naar Intervals.icu" (tab Plan).',
     next: 'Volgende', back: 'Terug', start: 'Start', save: 'Bewaar', saved: 'Bewaard', cancel: 'Annuleer', close: 'Sluiten', done: 'Klaar', skip: 'Overslaan', yes: 'Ja', no: 'Nee', optional: 'optioneel',
     min: 'min', per_side: '/kant', sec: 's', reps: 'herh.', breaths: 'ademh.',
     // wizard
@@ -118,6 +120,8 @@ const I18N = {
     dn_linked: 'Linked to Intervals.icu (last sent {d})', dn_linked_watch: '· watch activity', dn_edit_btn: 'Edit', dn_send: 'Send to Intervals.icu', dn_resend: 'Send again',
     dn_undo_q: 'This session is also in Intervals.icu. Delete it there too? (For a watch activity only the RPE and remark are removed; the activity itself stays.)', dn_undo_yes: 'Yes, also in Intervals.icu', dn_undo_no: 'No, only in the app', dn_deleted: 'Deleted in Intervals.icu.',
     icu_auto: 'Send completed sessions to Intervals.icu automatically', icu_auto_note: 'First looks for a strength activity from your watch on that day and adds the RPE and remark to it. None found? Then the app creates a completed activity.',
+    mv_orig: 'original day', mv_also: 'also', mv_none: 'No other free day left this week. You can still skip it.', mv_week_only: 'You can move within the same week, to today or later. Tip: avoid two hard sessions (core/legs) close together.', mv_icu: 'The planned workout in Intervals.icu moves along.',
+    mv_icu_ok: 'Intervals.icu updated: now on {d}.', mv_icu_deleted: 'Planned workout removed from Intervals.icu.', mv_icu_later: 'Saved. This session will go along with the next "Send to Intervals.icu" (Plan tab).',
     next: 'Next', back: 'Back', start: 'Start', save: 'Save', saved: 'Saved', cancel: 'Cancel', close: 'Close', done: 'Done', skip: 'Skip', yes: 'Yes', no: 'No', optional: 'optional',
     min: 'min', per_side: '/side', sec: 's', reps: 'reps', breaths: 'breaths',
     wz_title: 'Welcome to DynamCore', wz_lead: 'Strength, core and mobility built around your riding week. A few steps and your plan is ready.',

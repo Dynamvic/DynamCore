@@ -90,6 +90,9 @@ textarea.note{font-family:inherit;font-size:16px;min-height:90px;resize:vertical
 .donebox .between{justify-content:space-between;align-items:center;flex-wrap:nowrap}
 .note-view{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;padding:8px 10px;border-left:3px solid var(--ok);background:var(--bg);border-radius:8px}
 .eyebrow.ok{color:var(--ok)}
+.toast{position:fixed;left:max(16px, env(safe-area-inset-left, 0px));right:max(16px, env(safe-area-inset-right, 0px));bottom:calc(84px + env(safe-area-inset-bottom, 0px));z-index:50;background:var(--fg);color:var(--bg);padding:12px 14px;border-radius:12px;font-size:15px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+.toast.bad{background:var(--bad);color:#fff}
+.row.center{justify-content:center}
 .card.warnc{border-color:var(--warn)}
 .card.notice{background:var(--soft)}
 .msg{font-size:14px;color:var(--ok);min-height:1.2em}

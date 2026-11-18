@@ -198,7 +198,7 @@ function weekPlan(p, st, w) {
   });
   const firstHard = out.filter(s => HARD.has(s.type)).sort((a, b) => a.day - b.day)[0];
   if (firstHard && (w === 1 || rec) && !(ov.noTest)) firstHard.test = true;
-  if (g) out.push({ type: 'GROUP', day: g.day, key: 'GROUP', focus: g.focus, skipped: !!(ov.skips && ov.skips.GROUP) });
+  if (g) out.push({ type: 'GROUP', day: ov.moves && ov.moves.GROUP != null ? +ov.moves.GROUP : g.day, key: 'GROUP', focus: g.focus, skipped: !!(ov.skips && ov.skips.GROUP) });
   out.sort((a, b) => a.day - b.day);
   return { w, monday, phase, rec, travel, slots: out, dropped, block: blockOf(p, w) };
 }
