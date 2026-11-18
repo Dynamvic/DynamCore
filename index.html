@@ -93,6 +93,14 @@ textarea.note{font-family:inherit;font-size:16px;min-height:90px;resize:vertical
 .toast{position:fixed;left:max(16px, env(safe-area-inset-left, 0px));right:max(16px, env(safe-area-inset-right, 0px));bottom:calc(84px + env(safe-area-inset-bottom, 0px));z-index:50;background:var(--fg);color:var(--bg);padding:12px 14px;border-radius:12px;font-size:15px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
 .toast.bad{background:var(--bad);color:#fff}
 .row.center{justify-content:center}
+.updbar{position:fixed;left:max(16px, env(safe-area-inset-left, 0px));right:max(16px, env(safe-area-inset-right, 0px));top:calc(10px + env(safe-area-inset-top, 0px));z-index:60;display:flex;gap:10px;align-items:center;justify-content:space-between;background:var(--accent);color:var(--on-accent);padding:10px 12px 10px 16px;border-radius:14px;box-shadow:0 6px 24px rgba(0,0,0,.25);font-weight:600}
+.updbar .btn{background:var(--on-accent);color:var(--accent);border-color:var(--on-accent);white-space:nowrap}
+.filebtn{cursor:pointer}
+.gt.g4{grid-template-columns:auto 1fr auto 40px}
+.gstopt{height:40px;padding:0 12px;border-radius:10px;border:1px solid color-mix(in srgb,var(--gfg) 40%,transparent);background:transparent;color:var(--gfg);font-family:var(--display);font-weight:700;font-size:14px}
+.gadj{display:flex;gap:10px;justify-content:center;margin-top:14px}
+.gadj button{min-width:92px;min-height:46px;border-radius:12px;border:2px solid var(--gfg);background:transparent;color:var(--gfg);font-family:var(--display);font-weight:700;font-size:16px}
+.gbtns button:disabled{opacity:.35}
 .card.warnc{border-color:var(--warn)}
 .card.notice{background:var(--soft)}
 .msg{font-size:14px;color:var(--ok);min-height:1.2em}

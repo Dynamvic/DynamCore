@@ -1,7 +1,7 @@
 'use strict';
 /* DynamCore – user interface. Data: exercises.js, engine.js, i18n.js. Everything is stored on this phone only. */
 
-const VERSION = '1.8';
+const VERSION = '1.9';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -204,7 +204,7 @@ function vWeek() {
     <button class="iconbtn" data-act="wk" data-d="-1" aria-label="-1" ${w <= 1 ? 'disabled' : ''}>${IC.left}</button>
     <div><div class="big">${t('week_n', { n: w })}</div><div class="sub">${DN.fmt(plan.monday)} – ${DN.fmt(plan.monday + 6)} ${pills}</div></div>
     <button class="iconbtn" data-act="wk" data-d="1" aria-label="+1">${IC.right}</button></section>`;
-  html += accExpiryWarning();
+  html += accExpiryWarning() + backupReminder();
   if (cw < 1 && w === 1) html += `<div class="card"><p>${t('not_started', { d: DN.fmtY(startNum(P)) })}</p></div>`;
   if (S.suggest && S.suggest !== P.level) html += `<div class="card ok"><p>${t('suggest_level', { l: S.suggest, name: t('lvl_' + S.suggest) })}</p><div class="row"><button class="btn" data-act="acceptlvl">${t('accept')}</button><button class="btn quiet" data-act="declinelvl">${t('decline')}</button></div></div>`;
   const testSlot = plan.slots.find(s => s.test);
@@ -420,13 +420,15 @@ function vSettings() {
     + sec(t('intervals_hdr'), `<p class="small muted">${t('icu_lead')}</p>
         <label class="fld"><span class="lbl">${t('icu_key')}</span><input id="f-icukey" type="password" autocomplete="off" data-field="icuKey" value="${esc(D.icuKey || '')}"></label>
         <label class="fld"><span class="lbl">${t('icu_id')} <small>(${t('optional')})</small></span><input id="f-icuid" data-field="icuId" placeholder="0" value="${esc(D.icuId || '')}"></label>
+        <label class="check"><input type="checkbox" id="f-icuplanauto" data-field="icuPlanAuto" ${D.icuPlanAuto !== false ? 'checked' : ''}><span>${t('icu_plan_auto')}</span></label>
         <label class="check"><input type="checkbox" id="f-icuauto" data-field="icuAuto" ${D.icuAuto ? 'checked' : ''}><span>${t('icu_auto')}</span></label><p class="small muted">${t('icu_auto_note')}</p>
         <div class="fld"><span class="lbl">${t('icu_load_hdr')}</span><small class="muted">${t('icu_load_expl')}</small>
           <div class="lph">${['CORE', 'LEG', 'MOB', 'GROUP'].map(ty => `<label class="tin"><span>${t('typeS_' + ty)}</span><input id="lph-${ty}" data-lph="${ty}" inputmode="numeric" value="${(D.loadPerHour && D.loadPerHour[ty]) || LOAD_PER_HOUR[ty]}"><span>/${lang() === 'nl' ? 'u' : 'h'}</span></label>`).join('')}</div></div>
         <div class="row"><button class="btn ghost" data-act="icutest">${t('icu_test')}</button><button class="btn" data-act="icusend">${t('icu_send')}</button></div><p class="msg" id="icumsg" aria-live="polite"></p>
         <p class="small muted">${t('icu_privacy')}</p>`)
-    + sec(t('backup'), `<p class="small muted">${t('backup_note')}</p><div class="row"><button class="btn ghost" data-act="backup">${t('backup')}</button><span class="msg" id="bmsg"></span></div>
-        <textarea id="restore" placeholder="${t('restore_ph')}"></textarea><button class="btn quiet" data-act="restore">${t('restore')}</button>`)
+    + sec(t('backup'), `<p class="small muted">${t('backup_note')}</p>${S.lastBackup ? `<p class="small muted">${t('bk_last', { d: DN.fmtY(S.lastBackup) })}</p>` : ''}
+        <div class="row"><button class="btn" data-act="backupfile">${t('bk_file')}</button><button class="btn ghost" data-act="backup">${t('backup')}</button><span class="msg" id="bmsg"></span></div>
+        <textarea id="restore" placeholder="${t('restore_ph')}"></textarea><div class="row"><button class="btn quiet" data-act="restore">${t('restore')}</button><label class="btn quiet filebtn">${t('bk_from_file')}<input type="file" id="restorefile" accept=".json,application/json,text/plain" hidden></label></div>`)
     + sec(t('reset'), `<button class="btn danger" data-act="reset">${UI.resetArmed ? t('reset_confirm') : t('reset')}</button>`)
     + sec(t('about'), `<picture class="logo-mid"><source srcset="icons/logo-light.png" media="(prefers-color-scheme: dark)"><img src="icons/logo-dark.png" alt="DynamVic Cycling coach"></picture><p class="small">${t('disclaimer')}</p><p class="small muted">DynamCore · ${t('version')} ${VERSION}</p>${accInfoCard()}`);
 }
@@ -576,11 +578,13 @@ function render() {
       ${nx && nx.id ? `<div class="unit">${t('g_next')}</div><div class="exn">${esc(exName(nx.id))}</div>` : ''}`;
   }
   const rd = s.kind === 'work' && s.rounds > 1 ? t('g_round', { a: s.round, b: s.rounds }) : '';
-  el.innerHTML = `<div class="gtop"><div class="gbar"><i style="width:${pct}%"></i></div><div class="gt"><span>${rd}</span><span>${esc(t('type_' + G.r.ses.type))}</span>
+  const restAdj = s.kind === 'rest' ? `<div class="gadj"><button data-act="gadj" data-v="-15">−15 s</button><button data-act="gadj" data-v="15">+15 s</button></div>` : '';
+  el.innerHTML = `<div class="gtop"><div class="gbar"><i style="width:${pct}%"></i></div><div class="gt g4"><button class="gstopt" data-act="gstop">✕ ${t('g_stop')}</button><span>${rd}</span><span>${esc(t('type_' + G.r.ses.type))}</span>
       <button class="gicon" data-act="gvoice" aria-label="${t('g_voice')}">${P.voice === false ? IC.mute : IC.sound}</button></div></div>
-    <div class="gmid">${mid}</div>
-    <div class="gbtns"><button data-act="gstop">${t('g_stop')}</button><button class="main" data-act="gpause">${G.paused ? t('g_resume') : t('g_pause')}</button><button data-act="gnext">${t('g_skip')}</button></div>`;
+    <div class="gmid">${mid}${restAdj}</div>
+    <div class="gbtns"><button data-act="gback" ${prevWork() < 0 ? 'disabled' : ''}>◀ ${t('g_back')}</button><button class="main" data-act="gpause">${G.paused ? t('g_resume') : t('g_pause')}</button><button data-act="gnext">${t('g_skip')} ▶</button></div>`;
 }
+function prevWork() { let j = G.i - 1; if (G.steps[G.i] && G.steps[G.i].kind !== 'work') { while (j >= 0 && G.steps[j].kind !== 'work') j--; } else { while (j >= 0 && G.steps[j].kind !== 'work') j--; } return j; }
 function finishGuided() {
   G.done = true; clearInterval(G.iv); beep(1320, 0.7); buzz([300, 100, 300]); speak(t('g_finished'));
   if (G.paused && G.ps) G.pms += Date.now() - G.ps;
@@ -679,8 +683,8 @@ function toast(msg, bad) {
   el.className = 'toast' + (bad ? ' bad' : ''); el.textContent = msg; el.hidden = false;
   clearTimeout(toast.tm); toast.tm = setTimeout(() => { el.hidden = true; }, bad ? 7000 : 3500);
 }
-async function icuSend(weeks) {
-  const m = $('#icumsg'); if (m) { m.className = 'msg'; m.textContent = '…'; }
+async function icuSend(weeks, quiet) {
+  const m = quiet ? null : $('#icumsg'); if (m) { m.className = 'msg'; m.textContent = '…'; }
   const evs = icuEvents(weeks);
   const td = today(), w0 = Math.max(1, curWeek()), endDay = mondayOfWeek(P, w0 + weeks) - 1;
   S.icuSent = S.icuSent || {};
@@ -698,7 +702,9 @@ async function icuSend(weeks) {
     }
     S.icuSentUntil = Math.max(S.icuSentUntil || 0, endDay); saveAll();
     if (m) m.textContent = evs.length || del ? t('icu_sent', { n: evs.length }) + (del ? ' ' + t('icu_deleted', { n: del }) : '') : t('icu_nothing');
-  } catch (e) { if (m) { m.className = 'msg bad'; m.textContent = icuError(e); } }
+    if (!quiet) { S.icuAutoAt = today(); S.icuAutoWeek = curWeek(); saveAll(); }
+    return { ok: true, n: evs.length, del };
+  } catch (e) { if (m) { m.className = 'msg bad'; m.textContent = icuError(e); } return { ok: false, err: icuError(e) }; }
 }
 function voiceSelect(D) {
   if (!('speechSynthesis' in window)) return '';
@@ -789,6 +795,12 @@ document.addEventListener('click', ev => {
       saveAll(); closeSheet(); rerender(); break;
     }
     case 'guided': { const r = resolveSession(); if (r) startGuided(r); break; }
+    case 'gback': { const j = prevWork(); if (j < 0) break; if (G.paused) { G.paused = false; if (G.ps) G.pms += Date.now() - G.ps; G.ps = 0; } G.i = j; G.lastBeep = null; enter(false); render(); break; }
+    case 'gadj': {
+      const d = +el.dataset.v * 1000, s = G.steps[G.i]; if (!s || !s.dur) break;
+      if (G.paused) G.left = Math.max(1000, G.left + d); else G.end = Math.max(Date.now() + 1000, G.end + d);
+      const left = Math.max(0, Math.ceil(((G.paused ? G.left : G.end - Date.now())) / 1000)); const b = $('#guided .big'); if (b) b.textContent = left; break;
+    }
     case 'gnext': if (G.paused) { G.paused = false; if (G.ps) G.pms += Date.now() - G.ps; G.ps = 0; } advance(); break;
     case 'gpause':
       if (G.paused) { G.paused = false; if (G.ps) G.pms += Date.now() - G.ps; G.ps = 0; const s = G.steps[G.i]; if (s.dur) G.end = Date.now() + G.left; else G.start = Date.now() - G.left; }
@@ -817,7 +829,9 @@ document.addEventListener('click', ev => {
     }
     case 'pause': P.paused = today(); saveAll(); location.hash = '#week'; break;
     case 'resume': { const wks = Math.ceil((today() - P.paused) / 7); P.start = DN.iso(startNum(P) + wks * 7); P.paused = null; UI.viewWeek = null; UI.settingsD = null; saveAll(); location.hash = '#week'; rerender(); break; }
-    case 'backup': { const data = JSON.stringify({ app: 'dynamcore', v: 1, profile: P, state: S }); copyText(data, $('#bmsg'), null); $('#restore').value = data; break; }
+    case 'backup': { S.lastBackup = today(); saveAll(); const data = backupJson(); copyText(data, $('#bmsg'), null); $('#restore').value = data; break; }
+    case 'backupfile': backupFile($('#bmsg')); break;
+    case 'bklater': S.backupSnooze = today() + 7; saveAll(); rerender(); break;
     case 'restore': {
       try { const o = JSON.parse($('#restore').value); if (o.app !== 'dynamcore' || !o.profile) throw 0; P = o.profile; S = Object.assign({ weekOv: {}, logs: [], tests: [] }, o.state); saveAll(); UI.settingsD = null; UI.viewWeek = null; location.hash = '#week'; route(); }
       catch (e) { $('#restore').value = ''; $('#restore').placeholder = t('restore_bad'); }
@@ -864,4 +878,60 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') addEventList
 if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => { if (location.hash === '#settings') rerender(); }; } catch (e) { } }
 setInterval(() => { if (UI.sw) { const s = Math.round((Date.now() - UI.sw.t0) / 1000); const i = $('#t-' + UI.sw.f); if (i) i.value = s; } }, 250);
 
-checkActivation().then(() => { importChallengeFromUrl(); route(); });
+/* ---------- 5. back-up as a file + monthly reminder ---------- */
+const backupJson = () => JSON.stringify({ app: 'dynamcore', v: 1, at: DN.iso(today()), profile: P, state: S });
+async function backupFile(msgEl) {
+  S.lastBackup = today(); saveAll();
+  const name = `dynamcore-backup-${(P.name || 'atleet').replace(/[^A-Za-z0-9_-]+/g, '-')}-${DN.iso(today())}.json`;
+  const blob = new Blob([backupJson()], { type: 'application/json' });
+  try {
+    const file = new File([blob], name, { type: 'application/json' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'DynamCore back-up' }); if (msgEl) msgEl.textContent = t('bk_done'); rerenderSoon(); return; }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000); if (msgEl) msgEl.textContent = t('bk_done'); rerenderSoon();
+}
+function rerenderSoon() { setTimeout(() => { if (!$('#sheet').open) rerender(); }, 600); }
+function backupReminder() {
+  if (!S.logs.length) return '';
+  const td = today(), last = S.lastBackup || 0;
+  if (td - last < 30 || (S.backupSnooze && td < S.backupSnooze)) return '';
+  return `<div class="card warnc"><p><b>${t('bk_rem_title')}</b> ${last ? t('bk_rem_last', { d: DN.fmtY(last) }) : t('bk_rem_never')}</p>
+    <div class="row"><button class="btn" data-act="backupfile">${t('bk_file')}</button><button class="btn quiet" data-act="bklater">${t('bk_later')}</button><span class="msg" id="bmsg"></span></div></div>`;
+}
+document.addEventListener('change', ev => {
+  if (ev.target.id !== 'restorefile' || !ev.target.files || !ev.target.files[0]) return;
+  const rd = new FileReader(); rd.onload = () => { $('#restore').value = String(rd.result || ''); $('[data-act=restore]').click(); }; rd.readAsText(ev.target.files[0]);
+});
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { }); } catch (e) { }
+
+/* ---------- 1. new version available → banner with reload ---------- */
+function showUpdateBanner() {
+  if ($('#updbar')) return;
+  const el = document.createElement('div'); el.id = 'updbar'; el.className = 'updbar'; el.setAttribute('role', 'status');
+  el.innerHTML = `<span>${t('upd_new')}</span><button class="btn" data-act="updreload">${t('upd_reload')}</button>`;
+  document.body.appendChild(el);
+}
+document.addEventListener('click', ev => { if (ev.target.closest('[data-act="updreload"]')) location.reload(); });
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) showUpdateBanner(); });
+  const checkUpdate = () => navigator.serviceWorker.getRegistration().then(r => r && r.update()).catch(() => { });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });
+  setInterval(checkUpdate, 30 * 60 * 1000);
+}
+
+/* ---------- 3. send the plan to Intervals.icu automatically, once a week ---------- */
+async function icuAutoPlan() {
+  if (!P || !P.icuKey || !String(P.icuKey).trim() || P.icuPlanAuto === false || P.paused) return;
+  const td = today(), cw = curWeek();
+  if (S.icuAutoTry === td) return;                                   // max. one attempt per day
+  if (S.icuAutoAt && td - S.icuAutoAt < 7 && S.icuAutoWeek === cw) return;
+  S.icuAutoTry = td; saveAll();
+  const r = await icuSend(4, true);
+  if (r && r.ok) { S.icuAutoAt = td; S.icuAutoWeek = cw; saveAll(); if (r.n || r.del) toast(t('icu_auto_plan_ok', { n: r.n })); }
+  else if (r) toast(t('icu_auto_plan_err') + ' ' + r.err, true);
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && ACT.state === 'ok') icuAutoPlan(); });
+
+checkActivation().then(() => { importChallengeFromUrl(); route(); setTimeout(icuAutoPlan, 1500); });
