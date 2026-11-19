@@ -1,7 +1,7 @@
 'use strict';
 /* DynamCore – user interface. Data: exercises.js, engine.js, i18n.js. Everything is stored on this phone only. */
 
-const VERSION = '2.0';
+const VERSION = '2.0.1';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -15,12 +15,41 @@ let P = store.get('profile', null);
 let S = Object.assign({ weekOv: {}, logs: [], tests: [], suggest: null, hideInstall: false, challenges: [] }, store.get('state', {}));
 /* Data migrations, run at start-up and after a restore. Each one runs once and only adds what is missing.
    v1.7: RPE scale is now 1–10: an old RPE 0 becomes 1 (nothing else changes).
-   v2.0: pauses are kept as periods (P.pauses); weeks that have started are frozen (S.weekSnap, see engine.js freezeWeeks). */
+   v2.0: pauses are kept as periods (P.pauses); weeks that have started are frozen (S.weekSnap, see engine.js freezeWeeks).
+   v2.0.1 (every start-up, harmless when nothing is wrong): remove sessions that v2.0 saved twice, remove weeks frozen during a
+   running pause, put routines in the plan week of their date, and plan the deletion in Intervals.icu of planned workouts
+   whose session no longer exists. */
 function migrateData() {
   if (!S.rpe110) { (S.logs || []).forEach(l => { if (l.rpe === 0) l.rpe = 1; }); S.rpe110 = true; }
-  if (!S.weekSnap || typeof S.weekSnap !== 'object') S.weekSnap = {};
+  if (!S.weekSnap || typeof S.weekSnap !== 'object' || Array.isArray(S.weekSnap)) S.weekSnap = {};
   if (P && !Array.isArray(P.pauses)) P.pauses = [];
-  S.dataV = 2;
+  if (!P || !P.start) { S.dataV = 3; return; }
+  repairSnaps(S, isDone);
+  if (P.paused != null) { const wp = planWeekOf(P, P.paused); Object.keys(S.weekSnap).forEach(k => { if (+k > wp) delete S.weekSnap[k]; }); }
+  routinesByDate();
+  if ((S.dataV || 0) < 3) { orphanSweep(); S.dataV = 3; }
+}
+/* routines (keys R-…) belong to the plan week of their date (coach 19-11-2026: also when done during a pause) */
+function routinesByDate() { (S.logs || []).forEach(l => { if (String(l.key).startsWith('R-') && Number.isFinite(l.d)) l.w = planWeekOf(P, l.d); }); }
+/* planned workouts in Intervals.icu whose session is no longer in the plan (e.g. the v2.0 duplicates) → delete them */
+function orphanSweep() {
+  const pre = `dynamcore-${P.start}-w`; S.icuDelPending = S.icuDelPending || [];
+  Object.entries(S.icuSent || {}).forEach(([ext, v]) => {
+    if (!ext.startsWith(pre) || !v || v.id == null) return;
+    const m = /^w(\d+)-(.+)$/.exec(ext.slice(pre.length - 1)); if (!m) return;
+    const w = +m[1], key = m[2];
+    if (weekPlan(P, S, w).slots.some(x => x.key === key) || S.logs.some(l => l.w === w && l.key === key)) return;
+    if (!S.icuDelPending.some(x => x.ext === ext)) S.icuDelPending.push({ ext, id: v.id });
+  });
+}
+async function icuCleanup() {
+  if (!P || !S.icuDelPending || !S.icuDelPending.length || !P.icuKey || !String(P.icuKey).trim()) return;
+  for (const x of [...S.icuDelPending]) {
+    try { await icuFetch(`/events/${x.id}`, { method: 'DELETE' }); }
+    catch (e) { if (!(e.code === 'http' && e.status === 404)) continue; }   // not reachable now: try again next time
+    S.icuDelPending = S.icuDelPending.filter(y => y.ext !== x.ext); if (S.icuSent) delete S.icuSent[x.ext];
+  }
+  saveAll();
 }
 const saveAll = () => { store.set('profile', P); store.set('state', S); };
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) { }
@@ -844,7 +873,11 @@ document.addEventListener('click', ev => {
       P = clone(D2); saveAll(); document.documentElement.lang = lang(); UI.viewWeek = null; rerender(); const m = $('#smsg'); if (m) m.textContent = t('saved'); break;
     }
     case 'pause': freezeNow(); P.paused = today(); saveAll(); location.hash = '#week'; break;
-    case 'resume': { freezeNow(); const from = P.paused, to = today(); P.pauses = P.pauses || []; if (to > from) P.pauses.push({ from, to }); P.paused = null; UI.viewWeek = null; UI.settingsD = null; saveAll(); location.hash = '#week'; rerender(); break; }
+    case 'resume': {
+      freezeNow(); const from = P.paused, to = today(), wp = planWeekOf(P, from);
+      P.pauses = P.pauses || []; if (to > from) P.pauses.push({ from, to }); P.paused = null;
+      Object.keys(S.weekSnap || {}).forEach(k => { if (+k > wp) delete S.weekSnap[k]; });   // v2.0.1: weeks after the pause start get new dates
+      routinesByDate(); freezeNow(); UI.viewWeek = null; UI.settingsD = null; saveAll(); location.hash = '#week'; rerender(); break; }
     case 'backup': case 'backupfile': {
       if (!hasIcuKey()) { doBackup(a, false); break; }
       UI.bkKind = a;
@@ -922,7 +955,7 @@ function doBackup(kind, withKey) {
 }
 
 /* ---------- restore: check the file, fill what is missing, keep the previous data aside ---------- */
-const isIso = x => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x) && !isNaN(DN.parse(x));
+const isIso = x => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x) && DN.iso(DN.parse(x)) === x;   // v2.0.1: real calendar dates only
 function checkBackup(o) {
   if (!o || typeof o !== 'object' || o.app !== 'dynamcore' || !o.profile || typeof o.profile !== 'object') return { ok: false, why: 'format' };
   const src = o.profile, def = defaultProfile(); let fixed = 0;
@@ -943,12 +976,18 @@ function checkBackup(o) {
   fix('icsTime', typeof p.icsTime === 'string' && /^\d{2}:\d{2}$/.test(p.icsTime), def.icsTime);
   fix('level', [1, 2, 3].includes(+p.level), 1);
   fix('adj', p.adj && typeof p.adj === 'object', {});
-  fix('pauses', p.pauses === undefined || (Array.isArray(p.pauses) && p.pauses.every(x => x && Number.isFinite(x.from) && Number.isFinite(x.weeks))), []);
+  // v2.0.1: pauses are { from, to } (day numbers); keep the valid ones, drop only the damaged ones
+  if (p.pauses !== undefined) { const ok = Array.isArray(p.pauses) ? p.pauses.filter(x => x && Number.isFinite(x.from) && Number.isFinite(x.to) && x.to > x.from).map(x => ({ from: x.from, to: x.to })) : [];
+    fixed += (Array.isArray(p.pauses) ? p.pauses.length : 1) - ok.length; p.pauses = ok; }
+  if (p.paused != null && !Number.isFinite(p.paused)) { p.paused = null; fixed++; }
   const st = o.state && typeof o.state === 'object' ? Object.assign({}, o.state) : (fixed++, {});
   if (!st.weekOv || typeof st.weekOv !== 'object' || Array.isArray(st.weekOv)) { st.weekOv = {}; fixed++; }
   if (!Array.isArray(st.logs)) { st.logs = []; fixed++; }
   const nl = st.logs.length; st.logs = st.logs.filter(l => l && Number.isFinite(l.w) && typeof l.key === 'string' && typeof l.type === 'string' && Number.isFinite(l.d)); fixed += nl - st.logs.length;
   if (!Array.isArray(st.tests)) { st.tests = []; fixed++; }
+  // v2.0.1: frozen weeks: keep the valid ones; a damaged week is dropped and simply follows the settings again
+  if (st.weekSnap !== undefined) { const ws = st.weekSnap && typeof st.weekSnap === 'object' && !Array.isArray(st.weekSnap) ? st.weekSnap : {};
+    const good = {}; Object.keys(ws).forEach(k => { if (/^\d+$/.test(k) && validSnap(ws[k])) good[k] = ws[k]; else fixed++; }); st.weekSnap = good; }
   return { ok: true, profile: p, state: st, at: isIso(o.at) ? o.at : null, fixed };
 }
 function doRestore() {
@@ -956,8 +995,8 @@ function doRestore() {
   if (P) { store.set('prevProfile', P); store.set('prevState', S); store.set('prevAt', today()); }
   const keepKey = P && P.icuKey && !r.profile.icuKey ? { icuKey: P.icuKey, icuId: P.icuId || '' } : {};   // back-up without key: keep the key already on this phone
   P = Object.assign(r.profile, keepKey); S = Object.assign({ weekOv: {}, logs: [], tests: [] }, r.state);
-  migrateData(); saveAll(); UI.restoreCand = null; UI.settingsD = null; UI.viewWeek = null; location.hash = '#week'; route();
-  toast(r.fixed ? t('rs_fixed', { n: r.fixed }) : t('rs_done'));
+  migrateData(); saveAll(); freezeNow(); UI.restoreCand = null; UI.settingsD = null; UI.viewWeek = null; location.hash = '#week'; route();
+  toast(r.fixed ? t(r.fixed === 1 ? 'rs_fixed1' : 'rs_fixed', { n: r.fixed }) : t('rs_done'));
 }
 async function backupFile(msgEl, withKey) {
   S.lastBackup = today(); saveAll();
@@ -1015,4 +1054,4 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 
 migrateData(); try { localStorage.setItem('dc:state', JSON.stringify(S)); if (P) localStorage.setItem('dc:profile', JSON.stringify(P)); } catch (e) { }
 freezeNow();
-checkActivation().then(() => { importChallengeFromUrl(); route(); setTimeout(icuAutoPlan, 1500); });
+checkActivation().then(() => { importChallengeFromUrl(); route(); setTimeout(() => { icuCleanup().finally(icuAutoPlan); }, 1500); });

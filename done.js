@@ -45,7 +45,7 @@ async function saveDone(send) {
   const note = $('#dn-note').value.trim();
   let log = c.isNew ? null : findLog(c.w, c.key), msg = '';
   if (!log) {
-    log = { w: c.w, key: c.key, type: c.type, d, rpe: c.rpe, est: c.est, dur, note, prevAdj: (P.adj || {})[c.type] || 0 };
+    log = { w: String(c.key).startsWith('R-') ? planWeekOf(P, d) : c.w, key: c.key, type: c.type, d, rpe: c.rpe, est: c.est, dur, note, prevAdj: (P.adj || {})[c.type] || 0 };
     S.logs.push(log);
     if (!String(c.key).startsWith('R-') && c.type !== 'GROUP') {
       const r = applyRpe(P, S.logs, c.type, c.rpe);
@@ -54,6 +54,7 @@ async function saveDone(send) {
   } else {
     const rpeChanged = log.rpe !== c.rpe;
     Object.assign(log, { d, rpe: c.rpe, dur, note });
+    if (String(log.key).startsWith('R-')) log.w = planWeekOf(P, d);   // v2.0.1: a routine belongs to the plan week of its date
     // recompute the RPE adjustment only when this is the latest session of its type
     const sameType = S.logs.filter(l => l.type === log.type);
     if (rpeChanged && sameType[sameType.length - 1] === log && log.type !== 'GROUP' && !String(log.key).startsWith('R-')) {

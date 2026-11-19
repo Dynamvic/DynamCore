@@ -223,26 +223,52 @@ function computeBase(p, st, w) {
    are frozen; the rest of the current week follows the current settings. */
 const effDay = (ov, s) => (ov.moves && ov.moves[s.key] != null ? +ov.moves[s.key] : s.day);
 const slotBase = s => { const o = { type: s.type, day: s.day, key: s.key, idx: s.idx }; if (s.test) o.test = true; if (s.focus) o.focus = s.focus; return o; };
+const validSnap = x => !!(x && typeof x === 'object' && Array.isArray(x.slots) && x.slots.every(s => s && TYPES.includes(s.type) && Number.isInteger(s.day) && s.day >= 0 && s.day <= 6 && typeof s.key === 'string'));
 function baseOf(p, st, w) {
   const snap = st.weekSnap && st.weekSnap[w], ov = st.weekOv[w] || {};
-  if (!snap) return computeBase(p, st, w);
+  if (!validSnap(snap)) return computeBase(p, st, w);   // no (or damaged) frozen data: follow the current settings
   const monday = mondayOfWeek(p, w);
   if (snap.upto == null) {
     let rec = !!snap.rec; if (typeof ov.rec === 'boolean') rec = ov.rec;
     const slots = snap.slots.filter(s => !(s.type === 'GROUP' && ov.groupOff)).map(s => s.type === 'GROUP' && ov.groupFocus ? { ...s, focus: ov.groupFocus } : { ...s });
     return { monday, phase: snap.phase, rec, travel: !!(ov.travel ?? snap.travel), slots, dropped: snap.dropped || 0, block: snap.block };
   }
+  /* v2.0.1: a planned session with the same type on the same planned day as a frozen one IS that session (it may be done
+     early or moved) and is not added again. Only a really new session (new settings) is added, on today or later;
+     its name changes only when the name is already taken. */
   const now = computeBase(p, st, w), frozen = snap.slots.map(s => ({ ...s })), keys = new Set(frozen.map(s => s.key));
-  const maxIdx = {}; frozen.forEach(s => { maxIdx[s.type] = Math.max(maxIdx[s.type] || 0, s.idx || 0); });
+  const maxIdx = {}; frozen.concat(now.slots).forEach(s => { maxIdx[s.type] = Math.max(maxIdx[s.type] || 0, s.idx || 0); });
+  const same = s => frozen.some(f => f.type === s.type && f.day === s.day);
   const add = [];
   now.slots.forEach(s => {
-    if (s.type === 'GROUP') { if (!keys.has('GROUP') && effDay(ov, s) >= snap.upto) add.push(s); return; }
-    if (effDay(ov, s) < snap.upto) return;              // new settings cannot place a session on a day that has passed
-    if (maxIdx[s.type] != null) { const idx = ++maxIdx[s.type]; s = { ...s, idx, key: `${s.type}-${idx}` }; }
-    add.push(s);
+    if (s.type === 'GROUP') { if (!keys.has('GROUP') && effDay(ov, s) >= snap.upto) { keys.add('GROUP'); add.push(s); } return; }
+    if (same(s)) return;
+    let c = s;
+    if (keys.has(s.key)) { const idx = ++maxIdx[s.type]; c = { ...s, idx, key: `${s.type}-${idx}` }; }
+    if (effDay(ov, c) < snap.upto) return;              // new settings cannot place a session on a day that has passed
+    keys.add(c.key); add.push(c);
   });
   if (frozen.some(s => s.test)) add.forEach(s => { delete s.test; });
   return { ...now, slots: frozen.concat(add) };
+}
+/* v2.0.1 repair: v2.0 could save the same session twice in a frozen week (same type, same planned day).
+   Keep the one that is done (all of them if more are done), otherwise the lowest number. Returns the removed sessions. */
+function repairSnaps(st, isDoneFn) {
+  const removed = [];
+  Object.keys(st.weekSnap || {}).forEach(k => {
+    const w = +k, snap = st.weekSnap[k];
+    if (!validSnap(snap)) { delete st.weekSnap[k]; return; }
+    const groups = {};
+    snap.slots.forEach(s => { if (s.type !== 'GROUP') (groups[s.type + '|' + s.day] = groups[s.type + '|' + s.day] || []).push(s); });
+    const drop = new Set();
+    Object.values(groups).filter(g => g.length > 1).forEach(g => {
+      const done = g.filter(s => isDoneFn(w, s.key));
+      const keep = done.length ? done : [g.slice().sort((a, b) => (a.idx || 0) - (b.idx || 0))[0]];
+      g.forEach(s => { if (!keep.includes(s)) drop.add(s.key); });
+    });
+    if (drop.size) { snap.slots = snap.slots.filter(s => !drop.has(s.key)); drop.forEach(key => removed.push({ w, key })); }
+  });
+  return removed;
 }
 function weekPlan(p, st, w) {
   const b = baseOf(p, st, w), ov = st.weekOv[w] || {};
@@ -261,8 +287,10 @@ function freezeWeeks(p, st, todayNum, isDoneFn) {
   if (!p || !p.start) return 0;
   st.weekSnap = st.weekSnap || {};
   const cw = planWeekOf(p, todayNum); let n = 0;
-  for (let w = 1; w <= cw; w++) {
-    const cur = st.weekSnap[w];
+  // v2.0.1: during a running pause, weeks after the week in which the pause started are not frozen (their dates change on resume)
+  const last = p.paused != null ? Math.min(cw, planWeekOf(p, p.paused)) : cw;
+  for (let w = 1; w <= last; w++) {
+    const cur = validSnap(st.weekSnap[w]) ? st.weekSnap[w] : null;
     const full = w < cw;
     if (cur && cur.upto == null) continue;
     const ov = st.weekOv[w] || {}, b = baseOf(p, st, w);
