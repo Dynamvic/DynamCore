@@ -195,3 +195,33 @@ const I18N = {
     voice_pick: 'Voice', voice_auto: 'Automatic', voice_test: 'Test voice', voice_none: 'No voice found for this language on this device.'
   }
 };
+
+/* ---------- v2.0 texts (added in one place so the blocks above stay as they were) ---------- */
+Object.assign(I18N.nl, {
+  rs_q_title: 'Back-up terugzetten?',
+  rs_q: 'Dit vervangt alle gegevens op deze telefoon door de back-up van {d}{n}. Je huidige gegevens worden eerst apart bewaard, zodat je dit nog ongedaan kan maken.',
+  rs_yes: 'Ja, terugzetten', rs_no: 'Annuleer',
+  rs_done: 'Back-up teruggezet.', rs_fixed: 'Back-up teruggezet. {n} onderdeel/onderdelen ontbraken of waren ongeldig en kregen de standaardwaarde.',
+  rs_bad_start: 'Deze back-up heeft geen geldige startdatum. Er is niets veranderd.',
+  rs_prev: 'Vorige gegevens terugzetten (van vóór de laatste herstelactie op {d})', rs_prev_done: 'Vorige gegevens teruggezet.',
+  status_paused: 'Gepauzeerd',
+  start_locked: 'De startdatum ligt vast zodra je sessies afgevinkt hebt (al je sessies zijn per planweek bewaard). Even niet trainen? Gebruik "Pauzeer plan".',
+  rec_race: 'Telt als herstelweek',
+  bk_key_title: 'Intervals.icu-sleutel meenemen?',
+  bk_key_q: 'Met je Intervals.icu-sleutel kan iemand je Intervals.icu-account lezen en aanpassen. Neem hem alleen mee als de back-up voor jezelf is, bv. voor een nieuwe telefoon. Zonder sleutel blijft de sleutel op deze telefoon gewoon werken.',
+  bk_key_no: 'Zonder sleutel (aangeraden)', bk_key_yes: 'Met sleutel (alleen voor mezelf)'
+});
+Object.assign(I18N.en, {
+  rs_q_title: 'Restore back-up?',
+  rs_q: 'This replaces all data on this phone with the back-up of {d}{n}. Your current data is kept aside first, so you can still undo this.',
+  rs_yes: 'Yes, restore', rs_no: 'Cancel',
+  rs_done: 'Back-up restored.', rs_fixed: 'Back-up restored. {n} item(s) were missing or invalid and got the default value.',
+  rs_bad_start: 'This back-up has no valid start date. Nothing was changed.',
+  rs_prev: 'Put back previous data (from before the last restore on {d})', rs_prev_done: 'Previous data put back.',
+  status_paused: 'Paused',
+  start_locked: 'The start date is fixed once you have ticked off sessions (all sessions are stored per plan week). Need a break? Use "Pause plan".',
+  rec_race: 'Counts as recovery week',
+  bk_key_title: 'Include your Intervals.icu key?',
+  bk_key_q: 'With your Intervals.icu key someone can read and change your Intervals.icu account. Only include it if the back-up is for yourself, e.g. for a new phone. Without the key, the key on this phone keeps working.',
+  bk_key_no: 'Without key (recommended)', bk_key_yes: 'With key (only for myself)'
+});

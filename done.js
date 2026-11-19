@@ -65,13 +65,15 @@ async function saveDone(send) {
   }
   saveAll();
   UI.doneCtx.isNew = false; UI.doneCtx.w = log.w; UI.doneCtx.key = log.key;
-  m.className = 'msg'; m.textContent = msg || t('saved');
+  // v2.0: close the sheet after saving; the result (and the Intervals.icu result) is shown at the bottom of the screen
+  closeSheet(); rerenderBehindSheet();
+  const pre = (msg || t('saved')) + ' ';
   if (send || (log.icu && P.icuKey)) {
-    m.textContent = (msg ? msg + ' ' : '') + t('dn_sending');
-    try { const r = await icuDone(log); m.textContent = (msg ? msg + ' ' : '') + r; }
-    catch (e) { m.className = 'msg bad'; m.textContent = icuError(e); }
-  }
-  rerenderBehindSheet();
+    toast(pre + t('dn_sending'));
+    try { const r = await icuDone(log); toast(pre + r); }
+    catch (e) { toast(pre + icuError(e), true); }
+    rerenderBehindSheet();
+  } else toast(msg || t('saved'));
 }
 function rerenderBehindSheet() { const y = scrollY; route(); scrollTo(0, y); }
 
@@ -94,7 +96,7 @@ async function icuDone(log) {
   const day = DN.iso(log.d), load = sessionLoad(P, log.type, log.est || log.dur);
   if (log.icu && log.icu.id) {
     const body = { icu_rpe: log.rpe, description: doneDescription(log, log.icu.mode === 'watch' ? (log.icu.base || '') : undefined) };
-    if (log.icu.mode === 'manual') Object.assign(body, { moving_time: log.dur * 60, elapsed_time: log.dur * 60, icu_training_load: load });
+    if (log.icu.mode === 'manual') Object.assign(body, { start_date_local: `${day}T${(P.icsTime || '19:00')}:00`, moving_time: log.dur * 60, elapsed_time: log.dur * 60, icu_training_load: load });
     await icuRaw(`/activity/${encodeURIComponent(log.icu.id)}`, { method: 'PUT', body: JSON.stringify(body) });
     log.icu.at = today(); saveAll(); return t('dn_updated');
   }

@@ -6,9 +6,14 @@
 <title>DynamCore Coach</title>
 <meta name="robots" content="noindex">
 <link rel="icon" href="icons/icon-192.png" type="image/png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&display=swap">
 <style>
+/* v2.0: fonts are hosted with the app (SIL Open Font License, see fonts/) – no requests to Google */
+@font-face{font-family:"Poppins";font-weight:600;font-style:normal;font-display:swap;src:url(fonts/poppins-600.woff) format("woff")}
+@font-face{font-family:"Poppins";font-weight:700;font-style:normal;font-display:swap;src:url(fonts/poppins-700.woff) format("woff")}
+@font-face{font-family:"Poppins";font-weight:800;font-style:normal;font-display:swap;src:url(fonts/poppins-800.woff) format("woff")}
+@font-face{font-family:"Inter";font-weight:400;font-style:normal;font-display:swap;src:url(fonts/inter-400.woff) format("woff")}
+@font-face{font-family:"Inter";font-weight:500;font-style:normal;font-display:swap;src:url(fonts/inter-500.woff) format("woff")}
+@font-face{font-family:"Inter";font-weight:600;font-style:normal;font-display:swap;src:url(fonts/inter-600.woff) format("woff")}
 /* Coach page: make challenges, read the athletes' shared messages, build the ranking. Same look as the app. */
 :root{--bg:#F5F5F3;--surface:#FFFFFF;--fg:#111214;--muted:#5D616B;--line:#E1E2E5;--soft:#EEEFF1;--accent:#2448C8;--on-accent:#FFFFFF;--ok:#157F4B;--bad:#B42318;
   --display:"Poppins","Avenir Next","Segoe UI",system-ui,sans-serif;--body:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color-scheme:light}
@@ -139,7 +144,15 @@ const b64u = {
   enc: o => btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
   dec: s => JSON.parse(decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/')))))
 };
+/* Shared codes come from WhatsApp messages: never trust them. Keep only known fields, force numbers, cut text. */
+const int0 = x => { const n = Math.floor(Number(x)); return Number.isFinite(n) && n >= 0 ? Math.min(n, 1e6) : 0; };
+function cleanEntry(e) {
+  if (!e || typeof e !== 'object' || typeof e.n !== 'string' || !e.n.trim() || typeof e.d !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(e.d)) return null;
+  return { n: e.n.trim().slice(0, 40), d: e.d, w: int0(e.w), wd: int0(e.wd), wt: int0(e.wt), s: int0(e.s), tot: int0(e.tot), min: int0(e.min),
+    c: (Array.isArray(e.c) ? e.c : []).filter(x => x && typeof x.i === 'string').slice(0, 20).map(x => ({ i: x.i.slice(0, 12), v: int0(x.v), g: int0(x.g) })) };
+}
 let CH = store.get('challenges', []), RE = store.get('entries', {});
+RE = Object.fromEntries(Object.entries(RE || {}).map(([k, e]) => [k, cleanEntry(e)]).filter(([, e]) => e));
 const save = () => { store.set('challenges', CH); store.set('entries', RE); };
 const KIND = { sessions: 'sessies', weeks: 'volledige weken', minutes: 'minuten', 'type:CORE': 'romp-sessies', 'type:LEG': 'benen-sessies', 'type:MOB': 'mobiliteitssessies' };
 const kindOf = c => c.k === 'type' ? 'type:' + c.ty : c.k;
@@ -169,7 +182,7 @@ $('#c-copy').onclick = () => copy($('#c-text').textContent, $('#c-cmsg'));
 $('#r-read').onclick = () => {
   const txt = $('#r-in').value, re = /#?DC1\.([A-Za-z0-9_-]+)/g; let m, n = 0, bad = 0;
   while ((m = re.exec(txt))) {
-    try { const e = b64u.dec(m[1]); if (!e.n || !e.d) { bad++; continue; } const key = e.n.trim().toLowerCase(); if (!RE[key] || RE[key].d <= e.d) RE[key] = e; n++; } catch (x) { bad++; }
+    try { const e = cleanEntry(b64u.dec(m[1])); if (!e) { bad++; continue; } const key = e.n.trim().toLowerCase(); if (!RE[key] || RE[key].d <= e.d) RE[key] = e; n++; } catch (x) { bad++; }
   }
   save(); renderAll();
   const el = $('#r-msg'); el.className = n ? 'msg' : 'msg bad';
@@ -194,9 +207,9 @@ function renderAll() {
   if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
   const { metric, rows } = ranked();
   $('#r-col').textContent = metric.startsWith('ch:') ? 'Uitdaging' : sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : 'Waarde';
-  $('#r-body').innerHTML = rows.map((r, i) => `<tr><td class="rk">${i + 1}</td><td>${esc(r.e.n)}</td><td>${r.v}${r.g ? ` / ${r.g}` : ''}</td><td>${r.g ? `<div class="bar"><i style="width:${Math.min(100, r.v / r.g * 100)}%"></i></div>` : ''}</td><td>wk ${r.e.w}: ${r.e.wd}/${r.e.wt}</td><td>${r.e.s}</td><td>${r.e.tot}</td><td>${fmt(r.e.d)}</td><td><button class="btn tiny quiet" data-rm="${esc(r.e.n.trim().toLowerCase())}">Verwijder</button></td></tr>`).join('');
+  $('#r-body').innerHTML = rows.map((r, i) => `<tr><td class="rk">${i + 1}</td><td>${esc(r.e.n)}</td><td>${int0(r.v)}${r.g ? ` / ${int0(r.g)}` : ''}</td><td>${r.g ? `<div class="bar"><i style="width:${Math.min(100, int0(r.v) / int0(r.g) * 100) || 0}%"></i></div>` : ''}</td><td>wk ${int0(r.e.w)}: ${int0(r.e.wd)}/${int0(r.e.wt)}</td><td>${int0(r.e.s)}</td><td>${int0(r.e.tot)}</td><td>${esc(fmt(r.e.d))}</td><td><button class="btn tiny quiet" data-rm="${esc(r.e.n.trim().toLowerCase())}">Verwijder</button></td></tr>`).join('');
   $('#r-empty').hidden = rows.length > 0;
-  $('#ch-list').innerHTML = CH.length ? CH.map(c => `<div class="chi"><div><b>${esc(c.t)}</b><div class="small muted">${c.g} ${KIND[kindOf(c)]} · ${fmt(c.f)} – ${fmt(c.to)}</div></div><div class="row"><button class="btn tiny ghost" data-cp="${esc(c.i)}">Kopieer code</button><button class="btn tiny quiet" data-del="${esc(c.i)}">Verwijder</button></div></div>`).join('') : '<p class="small muted">Nog geen uitdagingen gemaakt.</p>';
+  $('#ch-list').innerHTML = CH.length ? CH.map(c => `<div class="chi"><div><b>${esc(c.t)}</b><div class="small muted">${int0(c.g)} ${esc(KIND[kindOf(c)] || '')} · ${esc(fmt(c.f))} – ${esc(fmt(c.to))}</div></div><div class="row"><button class="btn tiny ghost" data-cp="${esc(c.i)}">Kopieer code</button><button class="btn tiny quiet" data-del="${esc(c.i)}">Verwijder</button></div></div>`).join('') : '<p class="small muted">Nog geen uitdagingen gemaakt.</p>';
 }
 $('#r-sort').onchange = renderAll;
 document.addEventListener('click', e => {
@@ -247,7 +260,7 @@ function accRender() {
   $('#k-none').hidden = !!KP; $('#k-have').hidden = !KP;
   const td = todayIso();
   $('#a-list').innerHTML = ACTS.map((a, i) => { const rev = REV.includes(a.d), exp = a.e && a.e < td;
-    return `<tr><td>${esc(a.n)}</td><td><code>${esc(a.d)}</code></td><td>${fmt(a.e) || '–'}</td><td>${rev ? 'Ingetrokken' : exp ? 'Verlopen' : 'Actief'}</td><td>${rev ? `<button class="btn tiny quiet" data-unrev="${esc(a.d)}">Herstel</button>` : `<button class="btn tiny quiet" data-rev="${esc(a.d)}">Intrekken</button>`}</td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">Nog geen activaties.</td></tr>';
+    return `<tr><td>${esc(a.n)}</td><td><code>${esc(a.d)}</code></td><td>${esc(fmt(a.e)) || '–'}</td><td>${rev ? 'Ingetrokken' : exp ? 'Verlopen' : 'Actief'}</td><td>${rev ? `<button class="btn tiny quiet" data-unrev="${esc(a.d)}">Herstel</button>` : `<button class="btn tiny quiet" data-rev="${esc(a.d)}">Intrekken</button>`}</td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">Nog geen activaties.</td></tr>';
   $('#a-rev').textContent = REV.length ? `Ingetrokken: ${REV.length}. Download key.js opnieuw en upload hem naar GitHub; de intrekking werkt zodra de atleet de app opent met internet.` : '';
 }
 $('#k-make').onclick = async () => {

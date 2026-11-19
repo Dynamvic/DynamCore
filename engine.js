@@ -120,11 +120,32 @@ function styleFor(phase, block, p, monday) {
 
 /* ---------- weeks ---------- */
 const startNum = p => DN.parse(p.start);
-const planWeekOf = (p, dayNum) => Math.floor((DN.monday(dayNum) - startNum(p)) / 7) + 1;
-const mondayOfWeek = (p, w) => startNum(p) + (w - 1) * 7;
+/* v2.0 pauses: p.pauses = [{ from, to }] (day numbers, to = resume day). A calendar week that lies completely inside a pause
+   (and is not the week in which the pause started) is skipped: it gets no plan week number. The start date never moves,
+   so everything done before a pause stays in its own calendar week. */
+function skippedMondays(p) {
+  const st = startNum(p), out = [];
+  (p.pauses || []).forEach(x => { if (!x || !Number.isFinite(x.from) || !Number.isFinite(x.to)) return;
+    for (let m = DN.monday(x.from) + 7; m + 7 <= x.to; m += 7) if (m > st && !out.includes(m)) out.push(m); });
+  return out.sort((a, b) => a - b);
+}
+function planWeekOf(p, dayNum) {
+  const m = DN.monday(dayNum), raw = Math.floor((m - startNum(p)) / 7) + 1;
+  return raw - skippedMondays(p).filter(x => x <= m).length;
+}
+function mondayOfWeek(p, w) {
+  let c = startNum(p) + (w - 1) * 7;
+  for (const x of skippedMondays(p)) if (x <= c) c += 7;
+  return c;
+}
+function pausedDay(p, dn) {
+  if (p.paused != null && dn >= p.paused) return true;
+  return (p.pauses || []).some(x => x && dn >= x.from && dn < x.to);
+}
 function isRecovery(p, st, w) {
   const k = +p.rk || 0;
-  let rec = k > 0 && w % k === 0;
+  const snap = st.weekSnap && st.weekSnap[w];
+  let rec = snap && snap.upto == null ? !!snap.rec : k > 0 && w % k === 0;
   const ov = st.weekOv[w];
   if (ov && typeof ov.rec === 'boolean') rec = ov.rec;
   return rec;
@@ -174,7 +195,8 @@ function assignDays(types, days, groupDay, groupHard, hardBike) {
   return { slots: use.map((t, i) => ({ type: t, day: best ? best[i] : freeDays[i] })), dropped: types.length - n };
 }
 
-function weekPlan(p, st, w) {
+/* The plan of a week before moves/skips: computed from the current settings. */
+function computeBase(p, st, w) {
   const monday = mondayOfWeek(p, w);
   const phase = phaseFor(p, monday);
   const rec = isRecovery(p, st, w);
@@ -191,16 +213,69 @@ function weekPlan(p, st, w) {
   const { slots, dropped } = assignDays(types, (p.days || []).map(Number), g ? g.day : null, g ? groupIsHard(g.focus) : false, p.hardBike);
   const counts = {};
   const out = slots.map(s => { counts[s.type] = (counts[s.type] || 0) + 1; return { ...s, key: `${s.type}-${counts[s.type]}`, idx: counts[s.type] }; });
-  out.forEach(s => {
-    const mv = ov.moves && ov.moves[s.key];
-    if (mv != null) s.day = +mv;
-    s.skipped = !!(ov.skips && ov.skips[s.key]);
-  });
   const firstHard = out.filter(s => HARD.has(s.type)).sort((a, b) => a.day - b.day)[0];
   if (firstHard && (w === 1 || rec) && !(ov.noTest)) firstHard.test = true;
-  if (g) out.push({ type: 'GROUP', day: ov.moves && ov.moves.GROUP != null ? +ov.moves.GROUP : g.day, key: 'GROUP', focus: g.focus, skipped: !!(ov.skips && ov.skips.GROUP) });
-  out.sort((a, b) => a.day - b.day);
-  return { w, monday, phase, rec, travel, slots: out, dropped, block: blockOf(p, w) };
+  if (g) out.push({ type: 'GROUP', day: g.day, key: 'GROUP', focus: g.focus });
+  return { monday, phase, rec, travel, slots: out, dropped, block: blockOf(p, w) };
+}
+/* v2.0 frozen weeks (st.weekSnap[w]): once a week has started, its sessions no longer follow later settings changes.
+   upto == null: the whole week is frozen (past week). upto = day index: only sessions before that day (or already done)
+   are frozen; the rest of the current week follows the current settings. */
+const effDay = (ov, s) => (ov.moves && ov.moves[s.key] != null ? +ov.moves[s.key] : s.day);
+const slotBase = s => { const o = { type: s.type, day: s.day, key: s.key, idx: s.idx }; if (s.test) o.test = true; if (s.focus) o.focus = s.focus; return o; };
+function baseOf(p, st, w) {
+  const snap = st.weekSnap && st.weekSnap[w], ov = st.weekOv[w] || {};
+  if (!snap) return computeBase(p, st, w);
+  const monday = mondayOfWeek(p, w);
+  if (snap.upto == null) {
+    let rec = !!snap.rec; if (typeof ov.rec === 'boolean') rec = ov.rec;
+    const slots = snap.slots.filter(s => !(s.type === 'GROUP' && ov.groupOff)).map(s => s.type === 'GROUP' && ov.groupFocus ? { ...s, focus: ov.groupFocus } : { ...s });
+    return { monday, phase: snap.phase, rec, travel: !!(ov.travel ?? snap.travel), slots, dropped: snap.dropped || 0, block: snap.block };
+  }
+  const now = computeBase(p, st, w), frozen = snap.slots.map(s => ({ ...s })), keys = new Set(frozen.map(s => s.key));
+  const maxIdx = {}; frozen.forEach(s => { maxIdx[s.type] = Math.max(maxIdx[s.type] || 0, s.idx || 0); });
+  const add = [];
+  now.slots.forEach(s => {
+    if (s.type === 'GROUP') { if (!keys.has('GROUP') && effDay(ov, s) >= snap.upto) add.push(s); return; }
+    if (effDay(ov, s) < snap.upto) return;              // new settings cannot place a session on a day that has passed
+    if (maxIdx[s.type] != null) { const idx = ++maxIdx[s.type]; s = { ...s, idx, key: `${s.type}-${idx}` }; }
+    add.push(s);
+  });
+  if (frozen.some(s => s.test)) add.forEach(s => { delete s.test; });
+  return { ...now, slots: frozen.concat(add) };
+}
+function weekPlan(p, st, w) {
+  const b = baseOf(p, st, w), ov = st.weekOv[w] || {};
+  const out = b.slots.map(s => ({ ...s }));
+  out.forEach(s => {
+    s.day = effDay(ov, s);
+    const paused = pausedDay(p, b.monday + s.day);
+    s.skipped = !!(ov.skips && ov.skips[s.key]) || paused;
+    if (paused) s.paused = true;
+  });
+  out.sort((a, b2) => a.day - b2.day);
+  return { w, monday: b.monday, phase: b.phase, rec: b.rec, travel: b.travel, slots: out, dropped: b.dropped, block: b.block };
+}
+/* Freeze the weeks that have started: past weeks completely, the current week up to today (+ sessions already done). */
+function freezeWeeks(p, st, todayNum, isDoneFn) {
+  if (!p || !p.start) return 0;
+  st.weekSnap = st.weekSnap || {};
+  const cw = planWeekOf(p, todayNum); let n = 0;
+  for (let w = 1; w <= cw; w++) {
+    const cur = st.weekSnap[w];
+    const full = w < cw;
+    if (cur && cur.upto == null) continue;
+    const ov = st.weekOv[w] || {}, b = baseOf(p, st, w);
+    if (full) {
+      const k = +p.rk || 0;   // stored without this week's own toggles (recovery, travel): those stay in weekOv and still apply
+      st.weekSnap[w] = { phase: b.phase, rec: k > 0 && w % k === 0, travel: !!p.travelAlways, block: b.block, dropped: b.dropped, slots: b.slots.map(slotBase) };
+    } else {
+      const upto = todayNum - b.monday;
+      st.weekSnap[w] = { upto, slots: b.slots.filter(s => effDay(ov, s) < upto || isDoneFn(w, s.key)).map(slotBase) };
+    }
+    n++;
+  }
+  return n;
 }
 
 /* ---------- level ---------- */
@@ -217,7 +292,7 @@ function doseFactor(p, plan, type) {
     const wib = weekInBlock(p, plan.w);
     f = [1, 1.15, 1.3, 1.4, 1.5][Math.min(4, wib)];
   }
-  if (plan.rec) f = 0.85;
+  if (plan.rec && plan.phase !== 'race') f = 0.85;   // v2.0: a race week that is also a recovery week follows the race rules only
   if (plan.phase === 'offseason') f *= 0.9;
   if (plan.phase === 'inseason') f *= 0.95;
   if (plan.phase === 'taper') f *= 0.75;

@@ -1,7 +1,7 @@
 'use strict';
 /* DynamCore – user interface. Data: exercises.js, engine.js, i18n.js. Everything is stored on this phone only. */
 
-const VERSION = '1.9';
+const VERSION = '2.0';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -13,10 +13,19 @@ const store = {
 };
 let P = store.get('profile', null);
 let S = Object.assign({ weekOv: {}, logs: [], tests: [], suggest: null, hideInstall: false, challenges: [] }, store.get('state', {}));
-/* v1.7: RPE scale is now 1–10. One-time migration: an old RPE 0 becomes 1 (nothing else changes). */
-if (!S.rpe110) { (S.logs || []).forEach(l => { if (l.rpe === 0) l.rpe = 1; }); S.rpe110 = true; try { localStorage.setItem('dc:state', JSON.stringify(S)); } catch (e) { } }
+/* Data migrations, run at start-up and after a restore. Each one runs once and only adds what is missing.
+   v1.7: RPE scale is now 1–10: an old RPE 0 becomes 1 (nothing else changes).
+   v2.0: pauses are kept as periods (P.pauses); weeks that have started are frozen (S.weekSnap, see engine.js freezeWeeks). */
+function migrateData() {
+  if (!S.rpe110) { (S.logs || []).forEach(l => { if (l.rpe === 0) l.rpe = 1; }); S.rpe110 = true; }
+  if (!S.weekSnap || typeof S.weekSnap !== 'object') S.weekSnap = {};
+  if (P && !Array.isArray(P.pauses)) P.pauses = [];
+  S.dataV = 2;
+}
 const saveAll = () => { store.set('profile', P); store.set('state', S); };
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) { }
+/* freeze the weeks that have started; called at start-up and before every change that could move sessions */
+function freezeNow() { if (!P || !P.start) return; try { if (freezeWeeks(P, S, today(), isDone)) saveAll(); } catch (e) { console.warn('freeze', e); } }
 
 /* ---------- language ---------- */
 const lang = () => (P && P.lang) || (UI.wz && UI.wz.d.lang) || UI.lockLang || 'nl';
@@ -81,7 +90,7 @@ function topbar(title, opts = {}) {
 function defaultProfile() {
   const td = today(), mon = DN.dow(td) === 0 ? td : DN.monday(td) + 7;
   return { lang: UI.lockLang || 'nl', accepted: false, name: '', rider: ['road'], complaints: [], eq: [], perWeek: 3, days: [0, 3, 5], group: { on: false, day: 1, focus: ['legs'] },
-    hardBike: [], dur: 30, start: DN.iso(mon), rk: 4, races: [], icsTime: '19:00', level: null, adj: {}, blocked: [], voice: true, travelAlways: false, phaseOverride: 'auto', paused: null };
+    hardBike: [], dur: 30, start: DN.iso(mon), rk: 4, races: [], icsTime: '19:00', level: null, adj: {}, blocked: [], voice: true, travelAlways: false, phaseOverride: 'auto', paused: null, pauses: [] };
 }
 const OPT = {
   rider: ['road', 'crit', 'gravel', 'mtb', 'tri'],
@@ -108,7 +117,8 @@ function field(D, name) {
       <span class="lbl sub">${t('wz_group_focus')}</span><div class="chips">${OPT.focus.map(v => chip('fchip', `data-f="group.focus" data-v="${v}"`, D.group.focus.includes(v), t('focus_' + v))).join('')}</div>` : ''}</div>`;
     case 'hardBike': return `<div class="fld"><span class="lbl">${t('wz_hardbike')} <small>(${t('optional')})</small></span>${multi([0, 1, 2, 3, 4, 5, 6], D.hardBike, v => dayName(v))}<small class="muted">${t('wz_hardbike_note')}</small></div>`;
     case 'dur': return `<div class="fld"><span class="lbl">${t('wz_dur')}</span>${single([15, 20, 30, 45], D.dur, v => `${v} ${t('min')}`)}</div>`;
-    case 'start': return `<label class="fld"><span class="lbl">${t('wz_start')}</span><input type="date" id="f-start" data-field="start" value="${D.start}"></label>`;
+    case 'start': return P && D !== UI.wz?.d && startLocked() ? `<div class="fld"><span class="lbl">${t('wz_start')}</span><b>${DN.fmtY(DN.parse(P.start))}</b><small class="muted">${t('start_locked')}</small></div>`
+      : `<label class="fld"><span class="lbl">${t('wz_start')}</span><input type="date" id="f-start" data-field="start" value="${D.start}"></label>`;
     case 'rk': return `<div class="fld"><span class="lbl">${t('wz_rk')}</span>${single([3, 4, 5, 0], D.rk, v => v ? t('wz_rk_every', { n: v }) : t('wz_rk_none'))}</div>`;
     case 'races': return `<div class="fld"><span class="lbl">${t('wz_races')} <small>(${t('optional')})</small></span>
       <div class="races">${D.races.map((r, i) => `<div class="race"><b>${DN.fmtY(DN.parse(r.d))}</b><span>${esc(r.n)}</span><button class="iconbtn sm" data-act="rmrace" data-i="${i}" aria-label="x">${IC.x}</button></div>`).join('')}</div>
@@ -118,6 +128,8 @@ function field(D, name) {
   }
   return '';
 }
+/* v2.0: the start date anchors all history (sessions are stored per plan week), so it cannot change once sessions are logged */
+const startLocked = () => !!(P && S.logs.length && today() >= startNum(P));
 function setField(D, f, v, multi) {
   const path = f.split('.');
   let o = D; for (let i = 0; i < path.length - 1; i++) o = o[path[i]];
@@ -199,7 +211,7 @@ function vWeek() {
   const w = UI.viewWeek, plan = weekPlan(P, S, w);
   let top = topbar(P.name ? `${P.name}` : 'DynamCore');
   if (P.paused) return top + `<div class="card"><p>${t('paused', { d: DN.fmtY(P.paused) })}</p><button class="btn" data-act="resume">${t('resume')}</button></div>`;
-  const pills = `<span class="pill ph-${plan.phase}">${t('phase_' + plan.phase)}</span>${plan.rec ? `<span class="pill rec">${t('recovery_week')}</span>` : ''}`;
+  const pills = `<span class="pill ph-${plan.phase}">${t('phase_' + plan.phase)}</span>${plan.rec ? `<span class="pill rec">${plan.phase === 'race' ? t('rec_race') : t('recovery_week')}</span>` : ''}`;
   let html = top + `<section class="weekhead">
     <button class="iconbtn" data-act="wk" data-d="-1" aria-label="-1" ${w <= 1 ? 'disabled' : ''}>${IC.left}</button>
     <div><div class="big">${t('week_n', { n: w })}</div><div class="sub">${DN.fmt(plan.monday)} – ${DN.fmt(plan.monday + 6)} ${pills}</div></div>
@@ -230,7 +242,7 @@ function vWeek() {
 function slotCard(plan, s, dn) {
   const w = plan.w, done = isDone(w, s.key), td = today();
   const missed = !done && !s.skipped && dn < td;
-  let status = done ? `<span class="st ok">${IC.check} ${t('status_done')}${rpeOf(w, s.key) != null ? ` · RPE ${rpeOf(w, s.key)}` : ''}</span>` : s.skipped ? `<span class="st">${t('status_skipped')}</span>` : missed ? `<span class="st bad">${t('status_missed')}</span>` : '';
+  let status = done ? `<span class="st ok">${IC.check} ${t('status_done')}${rpeOf(w, s.key) != null ? ` · RPE ${rpeOf(w, s.key)}` : ''}</span>` : s.paused ? `<span class="st">${t('status_paused')}</span>` : s.skipped ? `<span class="st">${t('status_skipped')}</span>` : missed ? `<span class="st bad">${t('status_missed')}</span>` : '';
   if (s.type === 'GROUP') {
     return `<div class="slot" style="--tc:${typeColor('GROUP')}"><button class="si" data-act="grpopen" data-w="${w}"><span class="tk">${t('typeS_GROUP')}</span><b>${esc(slotTitle(s))}</b>${status}</button>
       <div class="row sm">${done ? `<button class="btn tiny quiet" data-act="grpopen" data-w="${w}">${t('dn_edit_btn')}</button>` : s.skipped ? '' : `<button class="btn tiny" data-act="grpopen" data-w="${w}">${t('mark_done')}</button>`}${slotActs(plan, s, dn, done, true)}<button class="btn tiny quiet" data-act="groupedit" data-w="${w}">${t('group_edit')}</button></div></div>`;
@@ -243,7 +255,7 @@ function slotCard(plan, s, dn) {
 /* move / skip: for every session that is not done (missed, today or later). Moving stays within the same week. */
 function moveDays(plan, s) { const td = today(); return [0, 1, 2, 3, 4, 5, 6].filter(d => d !== s.day && plan.monday + d >= td); }
 function slotActs(plan, s, dn, done, inline) {
-  if (done) return '';
+  if (done || s.paused) return '';
   const w = plan.w;
   const b = s.skipped ? `<button class="btn tiny quiet" data-act="unskip" data-w="${w}" data-k="${s.key}">${t('undo_skip')}</button>`
     : `${moveDays(plan, s).length ? `<button class="btn tiny quiet" data-act="movesheet" data-w="${w}" data-k="${s.key}">${t('move')}</button>` : ''}<button class="btn tiny quiet" data-act="skip" data-w="${w}" data-k="${s.key}">${t('skip')}</button>`;
@@ -254,6 +266,7 @@ function streakText() {
   let n = 0;
   for (let w = curWeek() - 1; w >= 1; w--) {
     const pl = weekPlan(P, S, w); const need = pl.slots.filter(s => !s.skipped);
+    if (!need.length && pl.slots.some(s => s.paused)) continue;   // v2.0: a fully paused week neither counts nor breaks the streak
     if (need.length && need.every(s => isDone(w, s.key))) n++; else break;
   }
   return n ? t('streak', { n }) : '';
@@ -410,7 +423,7 @@ function vSettings() {
     + sec(t('s_profile'), ['lang', 'name', 'rider', 'complaints', 'eq'].map(f => field(D, f)).join(''))
     + sec(t('s_week'), ['perWeek', 'group', 'days', 'hardBike', 'dur'].map(f => field(D, f)).join(''))
     + sec(t('s_planning'), ['start', 'rk', 'icsTime'].map(f => field(D, f)).join('')
-      + `<div class="fld"><span class="lbl">${t('phase_override')}</span><div class="chips">${['auto', 'base', 'inseason', 'offseason'].map(v => chip('fset', `data-f="phaseOverride" data-v="${v}"`, D.phaseOverride === v, v === 'auto' ? t('phase_auto') : t('phase_' + v))).join('')}</div></div>
+      + `<div class="fld"><span class="lbl">${t('phase_override')}</span><div class="chips">${['auto', 'base', 'inseason', 'offseason', 'taper', 'race'].map(v => chip('fset', `data-f="phaseOverride" data-v="${v}"`, D.phaseOverride === v, v === 'auto' ? t('phase_auto') : t('phase_' + v))).join('')}</div></div>
         <div class="fld"><span class="lbl">${t('level_manual')}</span><div class="chips">${[1, 2, 3].map(v => chip('fset', `data-f="level" data-v="${v}"`, +D.level === v, `${v} · ${t('lvl_' + v)}`)).join('')}</div></div>`)
     + sec(t('s_app'), `<label class="check"><input type="checkbox" id="f-voice" data-field="voice" ${D.voice !== false ? 'checked' : ''}><span>${t('voice')}</span></label>
         ${voiceSelect(D)}
@@ -423,12 +436,13 @@ function vSettings() {
         <label class="check"><input type="checkbox" id="f-icuplanauto" data-field="icuPlanAuto" ${D.icuPlanAuto !== false ? 'checked' : ''}><span>${t('icu_plan_auto')}</span></label>
         <label class="check"><input type="checkbox" id="f-icuauto" data-field="icuAuto" ${D.icuAuto ? 'checked' : ''}><span>${t('icu_auto')}</span></label><p class="small muted">${t('icu_auto_note')}</p>
         <div class="fld"><span class="lbl">${t('icu_load_hdr')}</span><small class="muted">${t('icu_load_expl')}</small>
-          <div class="lph">${['CORE', 'LEG', 'MOB', 'GROUP'].map(ty => `<label class="tin"><span>${t('typeS_' + ty)}</span><input id="lph-${ty}" data-lph="${ty}" inputmode="numeric" value="${(D.loadPerHour && D.loadPerHour[ty]) || LOAD_PER_HOUR[ty]}"><span>/${lang() === 'nl' ? 'u' : 'h'}</span></label>`).join('')}</div></div>
+          <div class="lph">${['CORE', 'LEG', 'MOB', 'ACT', 'REC', 'GROUP'].map(ty => `<label class="tin"><span>${t('typeS_' + ty)}</span><input id="lph-${ty}" data-lph="${ty}" inputmode="numeric" value="${(D.loadPerHour && D.loadPerHour[ty]) || LOAD_PER_HOUR[ty]}"><span>/${lang() === 'nl' ? 'u' : 'h'}</span></label>`).join('')}</div></div>
         <div class="row"><button class="btn ghost" data-act="icutest">${t('icu_test')}</button><button class="btn" data-act="icusend">${t('icu_send')}</button></div><p class="msg" id="icumsg" aria-live="polite"></p>
         <p class="small muted">${t('icu_privacy')}</p>`)
     + sec(t('backup'), `<p class="small muted">${t('backup_note')}</p>${S.lastBackup ? `<p class="small muted">${t('bk_last', { d: DN.fmtY(S.lastBackup) })}</p>` : ''}
         <div class="row"><button class="btn" data-act="backupfile">${t('bk_file')}</button><button class="btn ghost" data-act="backup">${t('backup')}</button><span class="msg" id="bmsg"></span></div>
-        <textarea id="restore" placeholder="${t('restore_ph')}"></textarea><div class="row"><button class="btn quiet" data-act="restore">${t('restore')}</button><label class="btn quiet filebtn">${t('bk_from_file')}<input type="file" id="restorefile" accept=".json,application/json,text/plain" hidden></label></div>`)
+        <textarea id="restore" placeholder="${t('restore_ph')}"></textarea><div class="row"><button class="btn quiet" data-act="restore">${t('restore')}</button><label class="btn quiet filebtn">${t('bk_from_file')}<input type="file" id="restorefile" accept=".json,application/json,text/plain" hidden></label></div>
+        ${store.get('prevProfile', null) ? `<button class="btn quiet" data-act="restoreprev">${t('rs_prev', { d: DN.fmtY(store.get('prevAt', today())) })}</button>` : ''}`)
     + sec(t('reset'), `<button class="btn danger" data-act="reset">${UI.resetArmed ? t('reset_confirm') : t('reset')}</button>`)
     + sec(t('about'), `<picture class="logo-mid"><source srcset="icons/logo-light.png" media="(prefers-color-scheme: dark)"><img src="icons/logo-dark.png" alt="DynamVic Cycling coach"></picture><p class="small">${t('disclaimer')}</p><p class="small muted">DynamCore · ${t('version')} ${VERSION}</p>${accInfoCard()}`);
 }
@@ -727,9 +741,10 @@ document.addEventListener('click', ev => {
     case 'addrace': {
       const d = $('#race-d').value, n = $('#race-n').value.trim(); if (!d) return;
       const tgt = !P ? UI.wz.d : (location.hash === '#plan' ? P : UI.settingsD);
+      if (tgt === P) freezeNow();
       tgt.races.push({ d, n }); tgt.races.sort((x, y) => x.d.localeCompare(y.d)); if (P && tgt === P) saveAll(); rerender(); break;
     }
-    case 'rmrace': { const tgt = !P ? UI.wz.d : (location.hash === '#plan' ? P : UI.settingsD); tgt.races.splice(+el.dataset.i, 1); if (P && tgt === P) saveAll(); rerender(); break; }
+    case 'rmrace': { const tgt = !P ? UI.wz.d : (location.hash === '#plan' ? P : UI.settingsD); if (tgt === P) freezeNow(); tgt.races.splice(+el.dataset.i, 1); if (P && tgt === P) saveAll(); rerender(); break; }
     case 'wznext': UI.wz.step++; rerender(); scrollTo(0, 0); break;
     case 'wzback': UI.wz.step--; rerender(); scrollTo(0, 0); break;
     case 'wzlevel': UI.wz.testMode = el.dataset.v; rerender(); break;
@@ -823,19 +838,38 @@ document.addEventListener('click', ev => {
       break;
     }
     case 'savesettings': {
-      const D2 = UI.settingsD; D2.start = DN.iso(DN.monday(DN.parse(D2.start)));
+      freezeNow();
+      const D2 = UI.settingsD; if (startLocked()) D2.start = P.start; D2.start = DN.iso(DN.monday(DN.parse(D2.start)));
       if (+D2.level !== +P.level) D2.adj = {};
       P = clone(D2); saveAll(); document.documentElement.lang = lang(); UI.viewWeek = null; rerender(); const m = $('#smsg'); if (m) m.textContent = t('saved'); break;
     }
-    case 'pause': P.paused = today(); saveAll(); location.hash = '#week'; break;
-    case 'resume': { const wks = Math.ceil((today() - P.paused) / 7); P.start = DN.iso(startNum(P) + wks * 7); P.paused = null; UI.viewWeek = null; UI.settingsD = null; saveAll(); location.hash = '#week'; rerender(); break; }
-    case 'backup': { S.lastBackup = today(); saveAll(); const data = backupJson(); copyText(data, $('#bmsg'), null); $('#restore').value = data; break; }
-    case 'backupfile': backupFile($('#bmsg')); break;
+    case 'pause': freezeNow(); P.paused = today(); saveAll(); location.hash = '#week'; break;
+    case 'resume': { freezeNow(); const from = P.paused, to = today(); P.pauses = P.pauses || []; if (to > from) P.pauses.push({ from, to }); P.paused = null; UI.viewWeek = null; UI.settingsD = null; saveAll(); location.hash = '#week'; rerender(); break; }
+    case 'backup': case 'backupfile': {
+      if (!hasIcuKey()) { doBackup(a, false); break; }
+      UI.bkKind = a;
+      sheet(`<h3>${t('bk_key_title')}</h3><p class="small">${t('bk_key_q')}</p><div class="chips col">${chip('bkkey', 'data-v="0"', false, t('bk_key_no'))}${chip('bkkey', 'data-v="1"', false, t('bk_key_yes'))}</div>`);
+      break;
+    }
+    case 'bkkey': closeSheet(); doBackup(UI.bkKind, el.dataset.v === '1'); break;
     case 'bklater': S.backupSnooze = today() + 7; saveAll(); rerender(); break;
     case 'restore': {
-      try { const o = JSON.parse($('#restore').value); if (o.app !== 'dynamcore' || !o.profile) throw 0; P = o.profile; S = Object.assign({ weekOv: {}, logs: [], tests: [] }, o.state); saveAll(); UI.settingsD = null; UI.viewWeek = null; location.hash = '#week'; route(); }
-      catch (e) { $('#restore').value = ''; $('#restore').placeholder = t('restore_bad'); }
+      let o; try { o = JSON.parse($('#restore').value); } catch (e) { o = null; }
+      const r = checkBackup(o);
+      if (!r.ok) { $('#restore').value = ''; $('#restore').placeholder = t(r.why === 'start' ? 'rs_bad_start' : 'restore_bad'); break; }
+      UI.restoreCand = r;
+      if (!P) { doRestore(); break; }
+      sheet(`<h3>${t('rs_q_title')}</h3><p>${t('rs_q', { d: r.at ? DN.fmtY(DN.parse(r.at)) : '?', n: r.profile.name ? ` (${esc(r.profile.name)})` : '' })}</p>
+        <div class="row"><button class="btn" data-act="restorego">${t('rs_yes')}</button><button class="btn quiet" data-act="closesheet">${t('rs_no')}</button></div>`);
       break;
+    }
+    case 'restorego': closeSheet(); doRestore(); break;
+    case 'restoreprev': {
+      const pp = store.get('prevProfile', null), ps = store.get('prevState', null); if (!pp) break;
+      const curP = P, curS = S;
+      P = pp; S = Object.assign({ weekOv: {}, logs: [], tests: [] }, ps || {}); saveAll();
+      store.set('prevProfile', curP); store.set('prevState', curS); store.set('prevAt', today());
+      UI.settingsD = null; UI.viewWeek = null; location.hash = '#week'; route(); toast(t('rs_prev_done')); break;
     }
     case 'reset':
       if (!UI.resetArmed) { UI.resetArmed = true; rerender(); setTimeout(() => { if (UI.resetArmed) { UI.resetArmed = false; if (location.hash === '#settings') rerender(); } }, 5000); }
@@ -879,11 +913,56 @@ if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynt
 setInterval(() => { if (UI.sw) { const s = Math.round((Date.now() - UI.sw.t0) / 1000); const i = $('#t-' + UI.sw.f); if (i) i.value = s; } }, 250);
 
 /* ---------- 5. back-up as a file + monthly reminder ---------- */
-const backupJson = () => JSON.stringify({ app: 'dynamcore', v: 1, at: DN.iso(today()), profile: P, state: S });
-async function backupFile(msgEl) {
+/* v2.0: the Intervals.icu key is only in the back-up when the athlete chooses so (asked each time) */
+const hasIcuKey = () => !!(P && P.icuKey && String(P.icuKey).trim());
+const backupJson = withKey => { const pr = clone(P); if (!withKey) { delete pr.icuKey; } return JSON.stringify({ app: 'dynamcore', v: 2, at: DN.iso(today()), profile: pr, state: S }); };
+function doBackup(kind, withKey) {
+  if (kind === 'backupfile') return backupFile($('#bmsg'), withKey);
+  S.lastBackup = today(); saveAll(); const data = backupJson(withKey); copyText(data, $('#bmsg'), null); const r = $('#restore'); if (r) r.value = data;
+}
+
+/* ---------- restore: check the file, fill what is missing, keep the previous data aside ---------- */
+const isIso = x => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x) && !isNaN(DN.parse(x));
+function checkBackup(o) {
+  if (!o || typeof o !== 'object' || o.app !== 'dynamcore' || !o.profile || typeof o.profile !== 'object') return { ok: false, why: 'format' };
+  const src = o.profile, def = defaultProfile(); let fixed = 0;
+  if (!isIso(src.start)) return { ok: false, why: 'start' };
+  const p = Object.assign({}, src);
+  const fix = (k, good, val) => { if (!good) { p[k] = val; fixed++; } };
+  const numArr = a => Array.isArray(a) && a.every(x => Number.isInteger(+x) && +x >= 0 && +x <= 6);
+  fix('lang', ['nl', 'en'].includes(p.lang), def.lang);
+  fix('name', typeof p.name === 'string', '');
+  ['rider', 'complaints', 'eq', 'blocked'].forEach(k => fix(k, Array.isArray(p[k]) && p[k].every(x => typeof x === 'string'), def[k]));
+  fix('perWeek', [2, 3, 4, 5].includes(+p.perWeek), def.perWeek);
+  fix('days', numArr(p.days) && p.days.length > 0, def.days);
+  fix('hardBike', numArr(p.hardBike), []);
+  fix('group', p.group && typeof p.group === 'object' && Number.isInteger(+p.group.day) && Array.isArray(p.group.focus), def.group);
+  fix('dur', [15, 20, 30, 45].includes(+p.dur), def.dur);
+  fix('rk', [0, 3, 4, 5].includes(+p.rk), def.rk);
+  fix('races', Array.isArray(p.races) && p.races.every(r => r && isIso(r.d) && typeof (r.n ?? '') === 'string'), (Array.isArray(p.races) ? p.races.filter(r => r && isIso(r.d)).map(r => ({ d: r.d, n: String(r.n ?? '') })) : []));
+  fix('icsTime', typeof p.icsTime === 'string' && /^\d{2}:\d{2}$/.test(p.icsTime), def.icsTime);
+  fix('level', [1, 2, 3].includes(+p.level), 1);
+  fix('adj', p.adj && typeof p.adj === 'object', {});
+  fix('pauses', p.pauses === undefined || (Array.isArray(p.pauses) && p.pauses.every(x => x && Number.isFinite(x.from) && Number.isFinite(x.weeks))), []);
+  const st = o.state && typeof o.state === 'object' ? Object.assign({}, o.state) : (fixed++, {});
+  if (!st.weekOv || typeof st.weekOv !== 'object' || Array.isArray(st.weekOv)) { st.weekOv = {}; fixed++; }
+  if (!Array.isArray(st.logs)) { st.logs = []; fixed++; }
+  const nl = st.logs.length; st.logs = st.logs.filter(l => l && Number.isFinite(l.w) && typeof l.key === 'string' && typeof l.type === 'string' && Number.isFinite(l.d)); fixed += nl - st.logs.length;
+  if (!Array.isArray(st.tests)) { st.tests = []; fixed++; }
+  return { ok: true, profile: p, state: st, at: isIso(o.at) ? o.at : null, fixed };
+}
+function doRestore() {
+  const r = UI.restoreCand; if (!r) return;
+  if (P) { store.set('prevProfile', P); store.set('prevState', S); store.set('prevAt', today()); }
+  const keepKey = P && P.icuKey && !r.profile.icuKey ? { icuKey: P.icuKey, icuId: P.icuId || '' } : {};   // back-up without key: keep the key already on this phone
+  P = Object.assign(r.profile, keepKey); S = Object.assign({ weekOv: {}, logs: [], tests: [] }, r.state);
+  migrateData(); saveAll(); UI.restoreCand = null; UI.settingsD = null; UI.viewWeek = null; location.hash = '#week'; route();
+  toast(r.fixed ? t('rs_fixed', { n: r.fixed }) : t('rs_done'));
+}
+async function backupFile(msgEl, withKey) {
   S.lastBackup = today(); saveAll();
   const name = `dynamcore-backup-${(P.name || 'atleet').replace(/[^A-Za-z0-9_-]+/g, '-')}-${DN.iso(today())}.json`;
-  const blob = new Blob([backupJson()], { type: 'application/json' });
+  const blob = new Blob([backupJson(withKey)], { type: 'application/json' });
   try {
     const file = new File([blob], name, { type: 'application/json' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'DynamCore back-up' }); if (msgEl) msgEl.textContent = t('bk_done'); rerenderSoon(); return; }
@@ -894,7 +973,7 @@ async function backupFile(msgEl) {
 function rerenderSoon() { setTimeout(() => { if (!$('#sheet').open) rerender(); }, 600); }
 function backupReminder() {
   if (!S.logs.length) return '';
-  const td = today(), last = S.lastBackup || 0;
+  const td = today(), first = Math.min(...S.logs.map(l => +l.d).filter(Number.isFinite), td), last = S.lastBackup || first;   // v2.0: never backed up → count from the first logged session
   if (td - last < 30 || (S.backupSnooze && td < S.backupSnooze)) return '';
   return `<div class="card warnc"><p><b>${t('bk_rem_title')}</b> ${last ? t('bk_rem_last', { d: DN.fmtY(last) }) : t('bk_rem_never')}</p>
     <div class="row"><button class="btn" data-act="backupfile">${t('bk_file')}</button><button class="btn quiet" data-act="bklater">${t('bk_later')}</button><span class="msg" id="bmsg"></span></div></div>`;
@@ -934,4 +1013,6 @@ async function icuAutoPlan() {
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && ACT.state === 'ok') icuAutoPlan(); });
 
+migrateData(); try { localStorage.setItem('dc:state', JSON.stringify(S)); if (P) localStorage.setItem('dc:profile', JSON.stringify(P)); } catch (e) { }
+freezeNow();
 checkActivation().then(() => { importChallengeFromUrl(); route(); setTimeout(icuAutoPlan, 1500); });

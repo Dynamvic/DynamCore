@@ -11,14 +11,16 @@ const b64u = {
 };
 
 /* ---------- stats ---------- */
+/* v2.0: minutes = actual duration as saved with the session; older logs without it: planned (group session 60) */
+const logMin = l => +l.dur || (l.type === 'GROUP' ? 60 : (+l.est || 0));
 function grpWeek(w) {
   const pl = weekPlan(P, S, w), need = pl.slots.filter(s => !s.skipped);
-  return { done: pl.slots.filter(s => isDone(w, s.key)).length, total: need.length, complete: need.length > 0 && need.every(s => isDone(w, s.key)) };
+  return { done: pl.slots.filter(s => isDone(w, s.key)).length, total: need.length, complete: need.length > 0 && need.every(s => isDone(w, s.key)), paused: !need.length && pl.slots.some(s => s.paused) };
 }
 function grpStreak() {
   const cw = curWeek(); let n = 0;
   if (cw >= 1 && grpWeek(cw).complete) n++;
-  for (let w = cw - 1; w >= 1; w--) { if (grpWeek(w).complete) n++; else break; }
+  for (let w = cw - 1; w >= 1; w--) { const g = grpWeek(w); if (g.complete) n++; else if (g.paused) continue; else break; }
   return n;
 }
 function chProgress(c) {
@@ -26,7 +28,7 @@ function chProgress(c) {
   const logs = S.logs.filter(l => l.d >= from && l.d <= to);
   let v = 0;
   if (c.k === 'sessions') v = logs.length;
-  else if (c.k === 'minutes') v = logs.reduce((a, l) => a + (l.type === 'GROUP' ? 60 : (+l.est || 0)), 0);
+  else if (c.k === 'minutes') v = logs.reduce((a, l) => a + logMin(l), 0);
   else if (c.k === 'type') v = logs.filter(l => l.type === c.ty).length;
   else if (c.k === 'weeks') {
     for (let w = 1; w <= curWeek(); w++) { const mon = mondayOfWeek(P, w); if (mon >= from && mon + 6 <= to && grpWeek(w).complete) v++; }
@@ -37,7 +39,7 @@ function chProgress(c) {
 const kindLabel = c => c.k === 'type' ? t('kind_type', { t: t('typeS_' + c.ty).toLowerCase() }) : t('kind_' + c.k);
 function shareData() {
   const cw = Math.max(1, curWeek()), wk = grpWeek(cw);
-  const tot = S.logs.length, min = S.logs.reduce((a, l) => a + (l.type === 'GROUP' ? 60 : (+l.est || 0)), 0);
+  const tot = S.logs.length, min = S.logs.reduce((a, l) => a + logMin(l), 0);
   const ch = (S.challenges || []).map(c => ({ c, p: chProgress(c) })).filter(x => x.p.state !== 'future');
   return { name: (P.name || '').trim() || (lang() === 'nl' ? 'Atleet' : 'Athlete'), w: cw, wd: wk.done, wt: wk.total, s: grpStreak(), tot, min, ch };
 }
