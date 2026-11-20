@@ -46,6 +46,7 @@ async function saveDone(send) {
   let log = c.isNew ? null : findLog(c.w, c.key), msg = '';
   if (!log) {
     log = { w: String(c.key).startsWith('R-') ? planWeekOf(P, d) : c.w, key: c.key, type: c.type, d, rpe: c.rpe, est: c.est, dur, note, prevAdj: (P.adj || {})[c.type] || 0 };
+    const snap = sessionSnapshot(c); if (snap) log.ses = snap;   // v2.1: keep what was actually done
     S.logs.push(log);
     if (!String(c.key).startsWith('R-') && c.type !== 'GROUP') {
       const r = applyRpe(P, S.logs, c.type, c.rpe);

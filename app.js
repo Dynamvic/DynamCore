@@ -1,7 +1,7 @@
 'use strict';
 /* DynamCore – user interface. Data: exercises.js, engine.js, i18n.js. Everything is stored on this phone only. */
 
-const VERSION = '2.0.1';
+const VERSION = '2.1.0';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -18,16 +18,29 @@ let S = Object.assign({ weekOv: {}, logs: [], tests: [], suggest: null, hideInst
    v2.0: pauses are kept as periods (P.pauses); weeks that have started are frozen (S.weekSnap, see engine.js freezeWeeks).
    v2.0.1 (every start-up, harmless when nothing is wrong): remove sessions that v2.0 saved twice, remove weeks frozen during a
    running pause, put routines in the plan week of their date, and plan the deletion in Intervals.icu of planned workouts
-   whose session no longer exists. */
+   whose session no longer exists.
+   v2.1 (data version 4): S.engFrom = first plan week built with the new session builder (structured variation). Coach
+   decision O4a: an athlete who already logged sessions switches at the start of the next block, so the current block
+   keeps its arc; without logged sessions the new builder is used from week 1. Weeks before S.engFrom keep the v2.0.1
+   builder, so what they show does not change. From v2.1 every completed session also stores its exercises (log.ses). */
+function firstV2Week() {
+  const started = (S.logs || []).some(l => l && l.type && l.type !== 'GROUP');
+  const cw = planWeekOf(P, today());
+  if (!started || cw < 1) return 1;
+  const k = (+P.rk || 0) > 0 ? +P.rk : 4;
+  return (Math.floor((cw - 1) / k) + 1) * k + 1;
+}
 function migrateData() {
   if (!S.rpe110) { (S.logs || []).forEach(l => { if (l.rpe === 0) l.rpe = 1; }); S.rpe110 = true; }
   if (!S.weekSnap || typeof S.weekSnap !== 'object' || Array.isArray(S.weekSnap)) S.weekSnap = {};
   if (P && !Array.isArray(P.pauses)) P.pauses = [];
-  if (!P || !P.start) { S.dataV = 3; return; }
+  if (!S.blkSwaps || typeof S.blkSwaps !== 'object' || Array.isArray(S.blkSwaps)) S.blkSwaps = {};
+  if (!P || !P.start) { S.dataV = 4; if (!Number.isFinite(S.engFrom)) S.engFrom = 1; return; }
   repairSnaps(S, isDone);
   if (P.paused != null) { const wp = planWeekOf(P, P.paused); Object.keys(S.weekSnap).forEach(k => { if (+k > wp) delete S.weekSnap[k]; }); }
   routinesByDate();
   if ((S.dataV || 0) < 3) { orphanSweep(); S.dataV = 3; }
+  if ((S.dataV || 0) < 4 || !Number.isFinite(S.engFrom)) { if (!Number.isFinite(S.engFrom)) S.engFrom = firstV2Week(); S.dataV = 4; }
 }
 /* routines (keys R-…) belong to the plan week of their date (coach 19-11-2026: also when done during a pause) */
 function routinesByDate() { (S.logs || []).forEach(l => { if (String(l.key).startsWith('R-') && Number.isFinite(l.d)) l.w = planWeekOf(P, l.d); }); }
@@ -279,7 +292,7 @@ function slotCard(plan, s, dn) {
   const ses = buildSession(P, S, plan, s);
   const acts = slotActs(plan, s, dn, done);
   return `<div class="slot" style="--tc:${typeColor(s.type)}"><button class="si" data-act="open" data-w="${w}" data-k="${s.key}">
-    <span class="tk">${t('typeS_' + s.type)}${s.test ? ' + TEST' : ''}</span><b>${t('type_' + s.type)}</b><span class="meta">${t('est', { n: ses.est })} · ${t('style_' + ses.style)} · RPE ${RPE_TARGET[s.type]}</span>${eqIcons(sessionEquip(P, ses))}${status}</button>${acts}</div>`;
+    <span class="tk">${t('typeS_' + s.type)}${s.test ? ' + TEST' : ''}</span><b>${t('type_' + s.type)}</b><span class="meta">${t('est', { n: ses.est })} · ${ses.ident ? t('ident_' + ses.type + '_' + ses.ident) : t('style_' + ses.style)} · RPE ${RPE_TARGET[s.type]}</span>${eqIcons(sessionEquip(P, ses))}${status}</button>${acts}</div>`;
 }
 /* move / skip: for every session that is not done (missed, today or later). Moving stays within the same week. */
 function moveDays(plan, s) { const td = today(); return [0, 1, 2, 3, 4, 5, 6].filter(d => d !== s.day && plan.monday + d >= td); }
@@ -302,6 +315,27 @@ function streakText() {
 }
 
 /* ---------- session detail ---------- */
+/* v2.1: a completed session stores what was actually done (log.ses); it is shown instead of what the plan would build now */
+const packSes = ses => ({ eng: ses.eng || 1, ident: ses.ident || null, wph: ses.wph || null, blocks: ses.blocks.map(b => ({ k: b.k, rounds: b.rounds, rest: b.rest || 0, roundRest: b.roundRest || 0,
+  items: b.items.map(i => [i.id, i.dose.k + i.dose.n + (i.dose.side ? 's' : ''), i.cue || '']) })) });
+function unpackSes(snap, ses) {
+  try {
+    if (!snap || !Array.isArray(snap.blocks)) return null;
+    const blocks = snap.blocks.map(b => ({ k: String(b.k), rounds: Math.max(1, +b.rounds || 1), rest: +b.rest || 0, roundRest: +b.roundRest || 0,
+      items: b.items.map(([id, d, cue]) => { if (!EXMAP[id] || !/^[rtb]\d+s?$/.test(d)) throw 0; return { id, orig: id, pat: EXMAP[id].pat, dose: parseDose(d), ...(cue ? { cue } : {}) }; }) }));
+    return finish({ ...ses, blocks, ident: snap.ident || ses.ident, wph: snap.wph || ses.wph, eng: snap.eng || ses.eng, logged: true });
+  } catch (e) { return null; }
+}
+function sessionSnapshot(c) {
+  try {
+    if (c.type === 'GROUP') return null;
+    let ses = null;
+    if (G.r && G.r.ses && G.r.slot && G.r.slot.key === c.key && (String(c.key).startsWith('R-') || G.r.plan.w === c.w)) ses = G.r.ses;
+    else if (UI.sess && (UI.sess.routine ? 'R-' + UI.sess.routine === c.key : UI.sess.w === c.w && UI.sess.key === c.key)) { const r = resolveSession(); ses = r && r.ses; }
+    else if (!String(c.key).startsWith('R-')) { const pl = weekPlan(P, S, c.w), s = pl.slots.find(x => x.key === c.key); if (s) ses = buildSession(P, S, pl, s); }
+    return ses ? packSes(ses) : null;
+  } catch (e) { return null; }
+}
 function resolveSession() {
   const c = UI.sess; if (!c) return null;
   if (c.routine) {
@@ -310,12 +344,15 @@ function resolveSession() {
     const type = c.routine === 'TRAVEL' ? 'CORE' : c.routine === 'EXTRA' ? c.type : c.routine;
     const slot = { type, key: 'R-' + c.routine, idx: 7 };
     const p2 = c.routine === 'EXTRA' ? plan : { ...plan, rec: false };
-    const ses = buildSession(P, { weekOv: {} }, p2, slot, { dur: c.dur || (c.routine === 'TRAVEL' ? 20 : P.dur), travel: c.routine === 'TRAVEL' ? true : undefined });
+    const ses = buildSession(P, { weekOv: {}, engFrom: S.engFrom }, p2, slot, { dur: c.dur || (c.routine === 'TRAVEL' ? 20 : P.dur), travel: c.routine === 'TRAVEL' ? true : undefined });
     return { plan, slot, ses, routine: c.routine };
   }
   const plan = weekPlan(P, S, c.w); const slot = plan.slots.find(s => s.key === c.key);
   if (!slot) return null;
-  return { plan, slot, ses: buildSession(P, S, plan, slot), routine: null };
+  let ses = buildSession(P, S, plan, slot);
+  const log = isDone(c.w, c.key) ? S.logs.filter(l => l.w === c.w && l.key === c.key).pop() : null;
+  if (log && log.ses) ses = unpackSes(log.ses, ses) || ses;
+  return { plan, slot, ses, routine: null };
 }
 function vSession() {
   const r = resolveSession(); if (!r) { location.hash = '#week'; return ''; }
@@ -325,13 +362,16 @@ function vSession() {
   const durs = ses.type === 'ACT' || ses.type === 'REC' ? [] : [15, 20, 30, 45];
   html += `<section class="sesshead" style="--tc:${typeColor(ses.type)}">
     <span class="tk">${r.routine ? t('tab_routines') : `${t('week_n', { n: plan.w })} · ${dayName(slot.day, true)} ${DN.fmt(plan.monday + slot.day)}`}</span>
+    ${ses.ident ? `<div class="ident"><b>${t('ident_' + ses.type + '_' + ses.ident)}</b>${ses.intent === 'A' || ses.intent === 'B' ? ` · ${t('intent_' + ses.intent)}` : ''}</div>` : ''}
     <div class="meta"><b>${t('est', { n: ses.est })}</b> · ${t('style_' + ses.style)} · ${t('level')} ${lvlDots(ses.level)} · RPE ${RPE_TARGET[ses.type]}</div>
     ${eqIcons(sessionEquip(P, ses), true)}
     ${durs.length ? `<div class="chips">${durs.map(d => chip('dur', `data-v="${d}"`, d === ses.dur, `${d} ${t('min')}`)).join('')}</div>` : ''}</section>`;
+  if (ses.logged) html += `<p class="small muted">${t('logged_note')}</p>`;
+  else if (ses.wph && !r.routine) html += `<div class="card wph"><p><b>${t('wph_' + ses.wph)}</b> ${t('wph_' + ses.wph + '_d')}</p></div>`;
   if (ses.test) html += `<div class="card"><p><b>${t('with_test')}</b> <a href="#progress" data-act="gotest" data-w="${plan.w}">${t('go_test')}</a></p></div>`;
   if (ses.travel) html += `<p class="small muted">${t('travel_on')}</p>`;
   html += ses.blocks.map(b => `<section class="blk"><div class="bh"><span>${t('blk_' + b.k)}</span>${b.rounds > 1 || b.rest ? `<span class="muted">${b.rounds > 1 ? t('rounds', { n: b.rounds }) : ''}${b.rest ? ' · ' + t('rest_s', { n: b.rest }) : ''}</span>` : ''}</div>
-    <ol class="ex">${b.items.map(i => `<li><button class="exr" data-act="exinfo" data-id="${i.id}"><span class="n">${esc(exName(i.id))}</span><span class="dose">${fmtDose(i.dose)}</span></button>${r.routine ? '' : `<button class="iconbtn sm" data-act="swapsheet" data-id="${i.id}" data-orig="${i.orig}" aria-label="${t('swap')}">${IC.swap}</button>`}</li>`).join('')}</ol></section>`).join('');
+    <ol class="ex">${b.items.map(i => `<li><button class="exr" data-act="exinfo" data-id="${i.id}"><span class="n">${esc(exName(i.id))}${i.cue ? `<small class="cue">${esc(t(i.cue))}</small>` : ''}</span><span class="dose">${fmtDose(i.dose)}</span></button>${r.routine || ses.logged ? '' : `<button class="iconbtn sm" data-act="swapsheet" data-id="${i.id}" data-orig="${i.orig}" aria-label="${t('swap')}">${IC.swap}</button>`}</li>`).join('')}</ol></section>`).join('');
   const done = !r.routine && isDone(plan.w, slot.key);
   html += (done ? doneBlock(plan.w, slot.key, ses.type) : '') + `<div class="stick"><button class="btn wide big" data-act="guided">${IC.play}<span>${t('start_guided')}</span></button>
     ${done ? '' : `<button class="btn quiet wide" data-act="markdone">${t('mark_done')}</button>`}
@@ -342,10 +382,11 @@ function vSession() {
 function intervalsText(r) {
   const { ses, plan, slot } = r, L = [];
   L.push(`DynamCore – ${t('type_' + ses.type)}${r.routine ? '' : ` | ${t('week_n', { n: plan.w })} ${dayName(slot.day)}`} | ${t('est', { n: ses.est })} | RPE ${RPE_TARGET[ses.type]}`);
+  if (ses.ident) L.push(`${t('ident_' + ses.type + '_' + ses.ident)}${ses.wph ? ' · ' + t('wph_' + ses.wph) : ''}`);
   const eqs = sessionEquip(P, ses); L.push(`${t('equipment')}: ${eqs.length ? eqs.map(x => t('eq_' + x)).join(', ') : t('eq_nothing')}`);
   ses.blocks.forEach(b => {
     L.push(`${t('blk_' + b.k)}${b.rounds > 1 ? ' – ' + t('rounds', { n: b.rounds }) : ''}${b.rest ? ', ' + t('rest_s', { n: b.rest }) : ''}:`);
-    b.items.forEach(i => L.push(`• ${exName(i.id)}  ${fmtDose(i.dose)}`));
+    b.items.forEach(i => L.push(`• ${exName(i.id)}  ${fmtDose(i.dose)}${i.cue ? ' (' + t(i.cue) + ')' : ''}`));
   });
   L.push(lang() === 'nl' ? 'Na de sessie: RPE (1–10) + opmerking.' : 'After the session: RPE (1–10) + remark.');
   return L.join('\n');
@@ -423,7 +464,7 @@ function testChart(k) {
 /* ---------- library ---------- */
 function libList() {
   const q = UI.libQ.trim().toLowerCase(), ctx = makeCtx({ ...P, complaints: [], blocked: [] }, false);
-  const list = EX.filter(e => (UI.libCat === 'all' || CAT_OF(e.pat) === UI.libCat) && (!UI.libMine || !e.eq.length || e.eq.some(x => ctx.eq.has(x)))
+  const list = EX.filter(e => !e.hidden && (UI.libCat === 'all' || CAT_OF(e.pat) === UI.libCat) && (!UI.libMine || !e.eq.length || e.eq.some(x => ctx.eq.has(x)))
     && (!q || `${e.id} ${e.n.nl} ${e.n.en} ${e.why[lang()]}`.toLowerCase().includes(q)));
   return list.length ? list.map(e => `<div class="card">${exCard(e)}</div>`).join('') : `<p class="muted">–</p>`;
 }
@@ -443,6 +484,20 @@ function vLibrary() {
     <div class="lib" id="liblist">${libList()}</div>`;
 }
 
+/* v2.1: start the new session building now instead of at the start of the next block (shown only while waiting; gone once used).
+   Sessions already done in this week keep what was done: their exercises are stored first, as the v2.0.1 builder made them. */
+function engWaiting() { return P && P.start && Number.isFinite(S.engFrom) && S.engFrom > Math.max(1, curWeek()); }
+async function startEngNow() {
+  if (!engWaiting()) return;
+  const cw = Math.max(1, curWeek());
+  S.logs.filter(l => l.w >= cw && !l.ses && l.type !== 'GROUP' && !String(l.key).startsWith('R-')).forEach(l => {
+    const pl = weekPlan(P, S, l.w), s = pl.slots.find(x => x.key === l.key); if (s) l.ses = packSes(buildSession(P, S, pl, s));
+  });
+  S.engFrom = cw; S.engNowAt = today(); UI.engArmed = false; saveAll(); rerender();
+  toast(t('engnow_done'));
+  if (P.icuKey && String(P.icuKey).trim()) { try { const r = await icuSend(4, true); if (r && !r.ok) toast(t('icu_auto_plan_err') + ' ' + r.err, true); } catch (e) { } }   // planned workouts get the new contents
+}
+
 /* ---------- settings ---------- */
 function vSettings() {
   if (!UI.settingsD) UI.settingsD = clone(P);
@@ -454,6 +509,7 @@ function vSettings() {
     + sec(t('s_planning'), ['start', 'rk', 'icsTime'].map(f => field(D, f)).join('')
       + `<div class="fld"><span class="lbl">${t('phase_override')}</span><div class="chips">${['auto', 'base', 'inseason', 'offseason', 'taper', 'race'].map(v => chip('fset', `data-f="phaseOverride" data-v="${v}"`, D.phaseOverride === v, v === 'auto' ? t('phase_auto') : t('phase_' + v))).join('')}</div></div>
         <div class="fld"><span class="lbl">${t('level_manual')}</span><div class="chips">${[1, 2, 3].map(v => chip('fset', `data-f="level" data-v="${v}"`, +D.level === v, `${v} · ${t('lvl_' + v)}`)).join('')}</div></div>`)
+    + (engWaiting() ? sec(t('engnow_hdr'), `<p class="small">${t('engnow_d', { d: DN.fmtY(mondayOfWeek(P, S.engFrom)) })}</p><button class="btn ghost" data-act="engnow">${UI.engArmed ? t('engnow_confirm') : t('engnow_btn')}</button>`) : '')
     + sec(t('s_app'), `<label class="check"><input type="checkbox" id="f-voice" data-field="voice" ${D.voice !== false ? 'checked' : ''}><span>${t('voice')}</span></label>
         ${voiceSelect(D)}
         <label class="check"><input type="checkbox" id="f-travel" data-field="travelAlways" ${D.travelAlways ? 'checked' : ''}><span>${t('travel_always')}</span></label>`)
@@ -549,7 +605,7 @@ function buildSteps(ses) {
     const sides = d.side ? ['L', 'R'] : [null];
     sides.forEach((sd, si) => {
       const timed = d.k === 't' || d.k === 'b';
-      steps.push({ kind: 'work', id: it.id, dose: d, side: sd, timed, dur: d.k === 't' ? d.n : d.k === 'b' ? d.n * 10 : 0, blk: b.k, round: r + 1, rounds: b.rounds });
+      steps.push({ kind: 'work', id: it.id, dose: d, side: sd, timed, dur: d.k === 't' ? d.n : d.k === 'b' ? d.n * 10 : 0, blk: b.k, round: r + 1, rounds: b.rounds, cue: it.cue || null });
       if (sd === 'L') steps.push({ kind: 'switch', dur: timed ? 5 : 3 });
     });
     const nxt = all[n + 1];
@@ -611,7 +667,7 @@ function render() {
     const e = EXMAP[s.id];
     mid = `<div class="kind">${t('blk_' + s.blk)}${s.side ? ' · ' + (s.side === 'L' ? t('g_left') : t('g_right')) : ''}</div>
       ${ANIMV.svg(s.id)}<div class="big${ANIMV.has(s.id) ? ' sm' : ''}">${s.timed ? left : s.dose.n}</div><div class="unit">${s.timed ? t('sec') : t('reps')}</div>
-      <div class="exn">${esc(exName(s.id))}</div><div class="cue">${esc(e.cue[lang()][0])}</div>
+      <div class="exn">${esc(exName(s.id))}</div>${s.cue ? `<div class="cue icue">${esc(t(s.cue))}</div>` : ''}<div class="cue">${esc(e.cue[lang()][0])}</div>
       ${!s.timed ? `<button class="gdone" data-act="gnext">${t('g_done_btn')}</button>` : ''}
       ${nextWork && nextWork.id !== s.id ? `<div class="nxt">${t('g_next')}: ${esc(exName(nextWork.id))}</div>` : ''}`;
   } else {
@@ -827,17 +883,25 @@ document.addEventListener('click', ev => {
     case 'swapsheet': {
       const r = resolveSession(); const id = el.dataset.id; UI.swapCtx = { orig: el.dataset.orig, id };
       const inSes = new Set(r.ses.blocks.flatMap(b => b.items.map(i => i.id)));
-      const opts = swapOptions(P, id, r.ses.level, r.ses.travel).filter(e => !inSes.has(e.id));
+      const wkIds = r.ses.eng === 2 ? weekMainIds(P, r.plan) : new Set();
+      let opts = swapOptions(P, id, r.ses.level, r.ses.travel).filter(e => !inSes.has(e.id));
+      if (opts.some(e => !wkIds.has(e.id))) opts = opts.filter(e => !wkIds.has(e.id));   // v2.1: prefer what is not done elsewhere this week
+      UI.swapCtx.eng = r.ses.eng; UI.swapCtx.block = r.plan.block;
       sheet(`<h3>${t('swap_title')}</h3><p class="small muted">${esc(exName(id))}</p>${opts.length ? `<div class="swl">${opts.map(e => `<button class="swo" data-act="swapto" data-id="${e.id}"><span>${esc(e.n[lang()])}</span>${lvlDots(e.lvl)}<small>${e.eq.length ? e.eq.map(x => t('eq_' + x)).join(' / ') : ''}</small></button>`).join('')}</div>` : `<p class="muted">${t('swap_none')}</p>`}
+        ${r.ses.eng === 2 && !r.routine ? `<label class="check"><input type="checkbox" id="swblock" checked><span>${t('swap_block')}</span></label>` : ''}
         <label class="check"><input type="checkbox" id="swnever"><span>${t('swap_never', { x: esc(exName(id)) })}</span></label>`);
       break;
     }
     case 'swapto': {
       const c = UI.sess, o = weekOv(c.w); o.swaps = o.swaps || {}; const m = o.swaps[c.key] = o.swaps[c.key] || {};
       m[UI.swapCtx.orig] = el.dataset.id;
+      if (UI.swapCtx.eng === 2 && $('#swblock') && $('#swblock').checked) {   // v2.1: keep the swap for the rest of this block
+        S.blkSwaps = S.blkSwaps || {}; const bk = `${UI.swapCtx.block}|${c.key}`; (S.blkSwaps[bk] = S.blkSwaps[bk] || {})[UI.swapCtx.orig] = { to: el.dataset.id, from: c.w };
+      }
       if ($('#swnever') && $('#swnever').checked) { P.blocked = [...new Set([...(P.blocked || []), UI.swapCtx.id])]; }
       saveAll(); closeSheet(); rerender(); break;
     }
+    case 'engnow': { if (!UI.engArmed) { UI.engArmed = true; rerender(); } else startEngNow(); break; }
     case 'guided': { const r = resolveSession(); if (r) startGuided(r); break; }
     case 'gback': { const j = prevWork(); if (j < 0) break; if (G.paused) { G.paused = false; if (G.ps) G.pms += Date.now() - G.ps; G.ps = 0; } G.i = j; G.lastBeep = null; enter(false); render(); break; }
     case 'gadj': {
@@ -985,6 +1049,10 @@ function checkBackup(o) {
   if (!Array.isArray(st.logs)) { st.logs = []; fixed++; }
   const nl = st.logs.length; st.logs = st.logs.filter(l => l && Number.isFinite(l.w) && typeof l.key === 'string' && typeof l.type === 'string' && Number.isFinite(l.d)); fixed += nl - st.logs.length;
   if (!Array.isArray(st.tests)) { st.tests = []; fixed++; }
+  // v2.1: first week of the new builder, swaps kept per block, exercises stored with a completed session
+  if (st.engFrom !== undefined && !(Number.isInteger(st.engFrom) && st.engFrom >= 1)) { delete st.engFrom; fixed++; }
+  if (st.blkSwaps !== undefined && !(st.blkSwaps && typeof st.blkSwaps === 'object' && !Array.isArray(st.blkSwaps))) { st.blkSwaps = {}; fixed++; }
+  st.logs.forEach(l => { if (l.ses !== undefined && !(l.ses && Array.isArray(l.ses.blocks))) { delete l.ses; fixed++; } });
   // v2.0.1: frozen weeks: keep the valid ones; a damaged week is dropped and simply follows the settings again
   if (st.weekSnap !== undefined) { const ws = st.weekSnap && typeof st.weekSnap === 'object' && !Array.isArray(st.weekSnap) ? st.weekSnap : {};
     const good = {}; Object.keys(ws).forEach(k => { if (/^\d+$/.test(k) && validSnap(ws[k])) good[k] = ws[k]; else fixed++; }); st.weekSnap = good; }

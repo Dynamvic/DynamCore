@@ -80,7 +80,7 @@ function allowed(e, ctx) {
 function makeCtx(p, travel) {
   return { eq: equipSet(p, travel), complaints: new Set(p.complaints || []), blocked: new Set(p.blocked || []), travel: !!travel };
 }
-function candidates(pat, ctx) { return EX.filter(e => e.pat === pat && allowed(e, ctx)); }
+function candidates(pat, ctx) { return EX.filter(e => e.pat === pat && !e.v21 && allowed(e.avoidV1 ? { ...e, avoid: e.avoidV1 } : e, ctx)); }   // v2.0.1 builder: library as it was (v2.1 additions excluded)
 
 /* Pick one exercise for a slot spec at a target level. */
 function pickSlot(spec, level, ctx, used, rand) {
@@ -329,7 +329,8 @@ function doseFactor(p, plan, type) {
 }
 const restFor = (style, level) => style === 'control' && level < 2 ? 30 : 45;
 
-function buildSession(p, st, plan, slot, opts = {}) {
+/* v2.0.1 builder, kept unchanged as buildSessionV1: weeks before S.engFrom (and ACT/REC) still use it, so history stays the same. */
+function buildSessionV1(p, st, plan, slot, opts = {}) {
   const type = slot.type;
   const ov = (st.weekOv[plan.w] || {});
   const dur = +(opts.dur || (ov.dur && ov.dur[slot.key]) || capDur(p.dur || 30, plan.phase, type));
@@ -434,7 +435,7 @@ function finish(s) {
 /* Alternatives for the swap button: same pattern, allowed, sorted by closeness in level. */
 function swapOptions(p, id, level, travel) {
   const e = EXMAP[id]; const ctx = makeCtx(p, travel);
-  return EX.filter(x => x.pat === e.pat && x.id !== id && allowed(x, ctx)).sort((a, b) => Math.abs(a.lvl - level) - Math.abs(b.lvl - level) || a.lvl - b.lvl);
+  return EX.filter(x => x.pat === e.pat && x.id !== id && !x.hidden && allowed(x, ctx)).sort((a, b) => Math.abs(a.lvl - level) - Math.abs(b.lvl - level) || a.lvl - b.lvl);
 }
 
 /* ---------- baseline test → level (FIRST ESTIMATE thresholds; adjust after the test group) ---------- */
@@ -517,3 +518,278 @@ function sessionLoad(p, type, minutes) {
   const per = (p.loadPerHour && +p.loadPerHour[type]) || LOAD_PER_HOUR[type] || 40;
   return Math.round(per * minutes / 60);
 }
+
+/* =====================================================================================================================
+   v2.1 – structured variation (coach approved 20-11-2026; review doc "DynamCore – exercise variation review (Phase 1)").
+   R1 identities: the 1st CORE/LEG session of a week is A, the 2nd B, a 3rd C; a single one is M (mixed). A group session
+      counts as identity A of its type (legs/strength → LEG A), so the home sessions of that type become B, C, …
+   R2 one "used" set per week: no main exercise twice in a week (when the pool allows it).
+   R3 must slots (!) are never cut to fit the time; optional slots go first, then a round.
+   R4 undulating dose: A = strength intent (library reps, hardest fitting variant, rest 60 s, load cue),
+      B/C = capacity intent (reps/time × 1,2, variants up to one level easier, rest 30 s). M = as v2.0.1 (rest 30/45 s).
+   R5 block arc: week 1 learn, then build, last build week = challenge (factors as v2.0.1: 1,00/1,15/1,30/…; loaded
+      exercises stop at 1,15 and get "choose a heavier weight"); recovery week = the exercises and number of exercises
+      of the week before, one round fewer, dose × 0,85, nothing added (session gets shorter).
+   R6 ladders: per pattern the allowed exercises sorted by level; the anchor (first must slot) is chosen per era of
+      2 blocks, other slots per block, by a fixed rotation (no random seed with level/RPE in it: a level change moves a rung).
+   R7 small pools: sister pattern first, then repeat with a cue (dose mode), and mark it.
+   R8 routines: extra session = next identity of the week; travel = B with bodyweight; swaps can be kept for the block.
+   ===================================================================================================================== */
+const IDENT = {
+  CORE: {
+    A: { wu: ['mob-spine', 'antiext1', 'bridge1', 'scap1'], main: ['antiext!', 'pull!', 'backext!', 'bridge!', 'scap', 'crawl|carry'], cd: ['mob-hipflex', 'mob-ham|mob-chest'], intent: 'A' },
+    B: { wu: ['mob-tspine', 'antilat1', 'abd1', 'balance1'], main: ['antilat!', 'antirot!', 'abd!', 'push!', 'rot|carry', 'add'], cd: ['mob-glute', 'mob-hip|mob-lat'], intent: 'B', power: 'power' },
+    C: { wu: ['mob-spine', 'crawl1', 'bridge1', 'mob-tspine'], main: ['crawl!', 'carry!|antilat', 'rot!|antirot', 'balance!', 'scap', 'add'], cd: ['mob-hipflex', 'mob-chest|mob-lat'], intent: 'B' },
+    M: { wu: ['mob-spine', 'bridge1', 'abd1', 'scap1'], main: ['antiext!', 'antilat!', 'antirot!', 'pull!', 'bridge', 'backext', 'push', 'abd', 'scap'], cd: ['mob-hipflex', 'mob-glute|mob-ham'], intent: 'M', power: 'power' }
+  },
+  LEG: {
+    A: { wu: ['mob-hipflex1', 'bridge1', 'hinge1', 'mob-hip1'], main: ['hinge:bi!', 'squat!', 'bridge!', 'calf!', 'antiext', 'carry'], cd: ['mob-hipflex', 'mob-ham', 'mob-calf'], intent: 'A', power: 'legpower' },
+    B: { wu: ['mob-hip1', 'abd1', 'balance1', 'mob-hipflex1'], main: ['lunge!', 'hinge:uni!', 'abd!', 'add!|antilat', 'balance', 'calf'], cd: ['mob-glute', 'mob-hip', 'mob-calf'], intent: 'B' },
+    C: { wu: ['mob-hipflex1', 'bridge1', 'balance1', 'mob-hip1'], main: ['legpower!|squat', 'hinge!', 'lunge!', 'calf!', 'balance', 'antilat'], cd: ['mob-hipflex', 'mob-glute', 'mob-calf'], intent: 'B' },
+    M: { wu: ['mob-hipflex1', 'bridge1', 'abd1', 'balance1'], main: ['squat!', 'hinge!', 'lunge!', 'abd!', 'calf', 'bridge', 'add'], cd: ['mob-hipflex', 'mob-ham', 'mob-calf'], intent: 'M', power: 'legpower' }
+  }
+};
+/* R7: patterns that train the same tissue in another way, used when a pattern has no free exercise left this week */
+const SISTER = { pull: ['scap', 'backext'], scap: ['pull'], backext: ['scap', 'hinge'], lunge: ['bridge:uni', 'balance'], squat: ['lunge'],
+  push: ['crawl'], antiext: ['crawl'], antirot: ['crawl', 'rot'], antilat: ['add', 'carry'], add: ['antilat'], abd: ['antilat'],
+  hinge: ['bridge'], bridge: ['hinge'], calf: ['balance'], carry: ['antilat'], crawl: ['antiext'], rot: ['antirot'], balance: ['abd'] };
+const MOB_EMPH = [   // R2/R6 for mobility: region emphasis rotates per week (hips + calf / thoracic + shoulder / posterior chain)
+  ['mob-hipflex', 'mob-hip', 'mob-calf', 'mob-glute', 'mob-ham', 'mob-tspine', 'mob-chest', 'mob-lat', 'mob-neck', 'mob-spine'],
+  ['mob-tspine', 'mob-chest', 'mob-lat', 'mob-neck', 'mob-spine', 'mob-hipflex', 'mob-ham', 'mob-glute', 'mob-hip', 'mob-calf'],
+  ['mob-ham', 'mob-glute', 'mob-calf', 'mob-lat', 'mob-hipflex', 'mob-spine', 'mob-tspine', 'mob-hip', 'mob-chest', 'mob-neck']
+];
+const LOADED_EQ = new Set(['db', 'kb', 'gym']);
+const isLoaded = e => e.eq.length > 0 && e.eq.every(x => LOADED_EQ.has(x));
+const engFrom = st => (st && Number.isFinite(+st.engFrom) && st.engFrom !== null ? +st.engFrom : 1);
+const engineFor = (st, w) => (w >= engFrom(st) ? 2 : 1);
+const blockLen = p => ((+p.rk || 0) > 0 ? +p.rk : 4);
+/* week phase inside the block: learn / build / challenge / rec */
+function weekPhase(p, plan) {
+  if (plan.rec) return 'rec';
+  const k = blockLen(p), wib = weekInBlock(p, plan.w), last = (+p.rk || 0) > 0 ? k - 2 : 3;
+  return wib === 0 ? 'learn' : wib >= last ? 'challenge' : 'build';
+}
+
+/* identities of the CORE/LEG sessions of a week (fixed by session number, so moving or skipping changes nothing) */
+function weekIdentities(plan) {
+  const out = {}, g = plan.slots.find(s => s.type === 'GROUP'), gt = g ? groupTypeOf(g.focus) : null;
+  ['CORE', 'LEG'].forEach(T => {
+    const list = plan.slots.filter(s => s.type === T).sort((a, b) => (a.idx || 0) - (b.idx || 0) || String(a.key).localeCompare(String(b.key)));
+    const seq = gt === T ? ['B', 'C', 'A'] : list.length === 1 ? ['M'] : ['A', 'B', 'C'];
+    list.forEach((s, i) => { out[s.key] = seq[Math.min(i, seq.length - 1)]; });
+  });
+  return out;
+}
+function extraIdentity(plan, T) {
+  const g = plan.slots.find(s => s.type === 'GROUP'), gt = g ? groupTypeOf(g.focus) : null;
+  const n = plan.slots.filter(s => s.type === T).length;
+  if (gt === T) return ['B', 'C', 'A'][Math.min(n, 2)];
+  if (n === 1) return 'C';
+  return ['A', 'B', 'C'][Math.min(n, 2)];
+}
+
+/* one pick on a ladder. spec "pat[:uni|:bi][level]|alt…"; o = { level, wide, rot, weekUsed, sesUsed, ctx, allowRepeat } */
+function parseAlt(alt) { const m = /^([a-z-]+)(?::(uni|bi))?(\d)?$/.exec(alt); return { pat: m[1], lat: m[2] || null, lvl: m[3] ? +m[3] : null }; }
+function ladder(pat, lat, ctx) {
+  return EX.filter(e => e.pat === pat && !e.hidden && allowed(e, ctx) && (!lat || (lat === 'uni') === parseDose(e.dose).side));
+}
+function bandOf(c, lvl, wide) {
+  const d = e => Math.abs(e.lvl - lvl) + (e.lvl > lvl ? 0.5 : 0);
+  if (wide) { const w = c.filter(e => e.lvl <= lvl && e.lvl >= lvl - 1); if (w.length) return w; }
+  const best = Math.min(...c.map(d)); return c.filter(e => d(e) === best);
+}
+function pick2(spec, o) {
+  const alts = spec.replace(/!/g, '').split('|').map(parseAlt);
+  const choose = (pool, lvl) => { const b = bandOf(pool, lvl, o.wide); return b[((o.rot % b.length) + b.length) % b.length]; };
+  const tryAlt = (a, skipWeek) => {
+    let c = ladder(a.pat, a.lat, o.ctx).filter(e => !o.sesUsed.has(e.id));
+    if (!c.length && a.lat) c = ladder(a.pat, null, o.ctx).filter(e => !o.sesUsed.has(e.id));
+    const free = skipWeek ? c : c.filter(e => !o.weekUsed.has(e.id));
+    return free.length ? choose(free, a.lvl || o.level) : null;
+  };
+  for (const a of alts) { const e = tryAlt(a); if (e) return { e, pat: a.pat }; }
+  for (const a of alts) for (const s of (SISTER[a.pat] || [])) { const b = parseAlt(s); b.lvl = a.lvl; const e = tryAlt(b); if (e) return { e, pat: b.pat, sister: true }; }
+  if (o.allowRepeat) for (const a of alts) { const e = tryAlt(a, true); if (e) return { e, pat: a.pat, rep: true }; }
+  return null;
+}
+
+/* main picks for every CORE/LEG session of the week: musts of all sessions first, then optional slots (R2/R3) */
+function weekPicks(p, plan) {
+  const ids = weekIdentities(plan), style = styleFor(plan.phase, plan.block, p, plan.monday);
+  const order = { A: 0, M: 1, B: 2, C: 3 };
+  const ses = plan.slots.filter(s => s.type === 'CORE' || s.type === 'LEG').map(s => ({ s, id: ids[s.key] }))
+    .sort((a, b) => (a.s.type === b.s.type ? 0 : a.s.type === 'CORE' ? -1 : 1) || order[a.id] - order[b.id] || (a.s.idx || 0) - (b.s.idx || 0));
+  const g = plan.slots.find(s => s.type === 'GROUP'), legA = ses.some(x => x.s.type === 'LEG' && (x.id === 'A' || x.id === 'M')) || !!(g && groupTypeOf(g.focus) === 'LEG');
+  const weekUsed = new Set(), out = {};
+  ses.forEach(x => { out[x.s.key] = specsFor(x.s.type, x.id, style, legA); });
+  const ctx = makeCtx(p, plan.travel);
+  [true, false].forEach(mustPass => ses.forEach(x => {
+    const r = out[x.s.key], level = effLevel(p, x.s.type);
+    r.specs.forEach((sp, i) => {
+      if (sp.must !== mustPass || r.picks[i] !== undefined) return;
+      const anchor = i === 0, rot = hashStr(`${x.s.type}|${x.id}|${i}`) % 997 + (anchor ? Math.floor(plan.block / 2) : plan.block);
+      const pk = pick2(sp.spec, { level, wide: r.intent !== 'A' && r.intent !== 'M' && !anchor, rot, weekUsed, sesUsed: r.used, ctx, allowRepeat: sp.must });
+      r.picks[i] = pk || null;
+      if (pk) { weekUsed.add(pk.e.id); r.used.add(pk.e.id); }
+    });
+  }));
+  Object.values(out).forEach(r => { r.main = r.specs.map((sp, i) => r.picks[i] ? { ...r.picks[i], must: sp.must } : null).filter(Boolean); });
+  return { ids, out, weekUsed, style };
+}
+function specsFor(type, ident, style, legA) {
+  const d = IDENT[type][ident] || IDENT[type].M;
+  let specs = d.main.map(x => ({ spec: x, must: x.includes('!') }));
+  if (type === 'CORE' && ident === 'A' && legA) specs = specs.map(x => x.spec === 'bridge!' ? { spec: 'bridge', must: false } : x);   // F9: hip extension already in LEG A / group
+  if (type === 'CORE' && ident === 'M' && !legA) specs = specs.map(x => x.spec === 'bridge' ? { spec: 'bridge!', must: true } : x);   // no leg work this week: keep hip extension
+  if (style === 'power' && d.power) specs.splice(1, 0, { spec: d.power + '!', must: true });
+  return { specs, picks: [], used: new Set(), intent: d.intent, ident };
+}
+
+/* warm-up (level 1) and cool-down (level ≤ 2) of a session: follow the identity, rotate per block, never repeat a main exercise */
+function sidePicks(type, ident, level, plan, ctx, mainIds) {
+  const def = IDENT[type][ident] || IDENT[type].M, sesUsed = new Set(mainIds);
+  const side = (specs, lvl, tag) => specs.map((sp, i) => { const pk = pick2(sp, { level: lvl, wide: false, rot: hashStr(`${type}|${ident}|${tag}${i}|${sp}`) % 997 + plan.block, weekUsed: new Set(), sesUsed, ctx, allowRepeat: false });
+    if (pk) sesUsed.add(pk.e.id); return pk; }).filter(Boolean);
+  const wu = side(def.wu, 1, 'w'), cd = side(def.cd, Math.min(level, 2), 'c');
+  return { wu, cd };
+}
+
+function buildSession(p, st, plan, slot, opts = {}) {
+  if (engineFor(st, plan.w) === 1 || !['CORE', 'LEG', 'MOB'].includes(slot.type)) return buildSessionV1(p, st, plan, slot, opts);
+  return buildSessionV2(p, st, plan, slot, opts);
+}
+
+function doseFactor2(p, plan, type, wibOverride) {
+  let f = 1;
+  if (type === 'CORE' || type === 'LEG') f = [1, 1.15, 1.3, 1.4, 1.5][Math.min(4, wibOverride ?? weekInBlock(p, plan.w))];
+  if (plan.rec && plan.phase !== 'race' && wibOverride == null) f = 0.85;
+  if (plan.phase === 'offseason') f *= 0.9;
+  if (plan.phase === 'inseason') f *= 0.95;
+  if (plan.phase === 'taper') f *= 0.75;
+  if (plan.phase === 'race') f *= 0.6;
+  return f;
+}
+
+function buildSessionV2(p, st, plan, slot, opts = {}) {
+  const type = slot.type, ov = (st.weekOv && st.weekOv[plan.w]) || {};
+  const dur = +(opts.dur || (ov.dur && ov.dur[slot.key]) || capDur(p.dur || 30, plan.phase, type));
+  const travel = opts.travel ?? plan.travel;
+  const ctx = makeCtx(p, travel), level = effLevel(p, type), style = styleFor(plan.phase, plan.block, p, plan.monday);
+  const wk = weekPicks(p, plan), wph = weekPhase(p, plan);
+  const routine = String(slot.key).startsWith('R-');
+  const swaps = (ov.swaps && ov.swaps[slot.key]) || {};
+  const bsw = (st.blkSwaps && st.blkSwaps[`${plan.block}|${slot.key}`]) || {};
+  const swapOf = id => { if (swaps[id] && EXMAP[swaps[id]]) return swaps[id]; const b = bsw[id]; if (b && EXMAP[b.to] && plan.w >= (b.from || 0)) return b.to; return id; };
+  const mk = (e, pat, dose, extra = {}) => { const id = swapOf(e.id); return { id, orig: e.id, pat, dose, ...extra }; };
+  const blocks = [];
+
+  if (type === 'CORE' || type === 'LEG') {
+    // this session's main picks: a planned session takes its row of the week; a routine picks around the whole week
+    let r = wk.out[slot.key], ident;
+    if (r && !travel === !plan.travel) ident = r.ident;
+    else {
+      ident = slot.key === 'R-TRAVEL' ? 'B' : routine ? extraIdentity(plan, type) : (wk.ids[slot.key] || 'M');
+      const gg = plan.slots.find(s => s.type === 'GROUP'), legA = plan.slots.some(s => s.type === 'LEG' && ['A', 'M'].includes(wk.ids[s.key])) || !!(gg && groupTypeOf(gg.focus) === 'LEG');
+      r = specsFor(type, ident, style, legA);
+      const used = routine ? new Set(wk.weekUsed) : new Set([...wk.weekUsed].filter(id => !(wk.out[slot.key] || { used: new Set() }).used.has(id)));
+      [true, false].forEach(mustPass => r.specs.forEach((sp, i) => {
+        if (sp.must !== mustPass || r.picks[i] !== undefined) return;
+        const anchor = i === 0, rot = hashStr(`${type}|${ident}|${i}`) % 997 + (anchor ? Math.floor(plan.block / 2) : plan.block);
+        const pk = pick2(sp.spec, { level, wide: r.intent !== 'A' && r.intent !== 'M' && !anchor, rot, weekUsed: used, sesUsed: r.used, ctx, allowRepeat: sp.must });
+        r.picks[i] = pk || null; if (pk) { used.add(pk.e.id); r.used.add(pk.e.id); }
+      }));
+      r.main = r.specs.map((sp, i) => r.picks[i] ? { ...r.picks[i], must: sp.must } : null).filter(Boolean);
+    }
+    const def = IDENT[type][ident] || IDENT[type].M, intent = def.intent;
+    const mult = intent === 'B' ? 1.2 : 1;
+    const rest = intent === 'A' ? 60 : intent === 'B' ? 30 : restFor(style, level);
+    const sides = sidePicks(type, ident, level, plan, ctx, r.main.map(x => x.e.id));
+    const wuAll = sides.wu.map(x => mk(x.e, x.pat, parseDose(x.e.dose)));
+    const cdAll = sides.cd.map(x => mk(x.e, x.pat, parseDose(x.e.dose)));
+    const mainFor = f => r.main.map(x => {
+      const e = x.e, loaded = isLoaded(e);
+      const ff = loaded && f > 1.15 ? 1.15 : f;   // loaded: reps stop at × 1,15, the load goes up instead
+      const dose = scaleDose(parseDose(e.dose), ff * mult);
+      let cue = null;
+      if (x.rep) cue = dose.k === 't' ? 'cue_rep_t' : 'cue_rep_r';
+      else if (loaded) cue = wph === 'rec' ? 'cue_load_rec' : wph === 'challenge' ? 'cue_load_up' : 'cue_load_rir';
+      return mk(e, x.pat, dose, { must: x.must, ...(cue ? { cue } : {}), ...(x.rep ? { rep: true } : {}), ...(x.sister ? { sister: true } : {}) });
+    });
+    const start = STR_START[dur] || STR_START[30];
+    const nMust = r.main.filter(x => x.must).length;
+    const fit = (f, rounds0) => {
+      const mainAll = mainFor(f);
+      let cfg = { ...start, n: Math.max(nMust, Math.min(start.n, mainAll.length)), r: rounds0 };
+      const est = c => {
+        const wu = wuAll.slice(0, c.wu), mn = mainAll.slice(0, c.n), cd = cdAll.slice(0, c.cd);
+        return (wu.reduce((a, i) => a + itemSeconds(i.dose) + 5, 0) + c.r * mn.reduce((a, i) => a + itemSeconds(i.dose), 0)
+          + (c.r * mn.length - 1) * rest + (c.r - 1) * 30 + cd.reduce((a, i) => a + itemSeconds(i.dose) + 5, 0)) / 60;
+      };
+      // all combinations of rounds and number of exercises (musts always in): closest to the time (over time counts double),
+      // then the planned number of rounds, then more exercises; shorter warm-up/cool-down only if needed
+      const rMax = 4, nMax = Math.max(nMust, Math.min(mainAll.length, 8));
+      const pickBest = (wu, cd) => { let best = null;
+        for (let r = 1; r <= rMax; r++) for (let n = Math.min(nMust, mainAll.length); n <= nMax; n++) {
+          const c = { ...cfg, wu, cd, r, n }, e = est(c), off = e > dur + 2 ? (e - dur) * 2 : e < dur - 3 ? dur - e : 0;
+          const score = off * 10 + Math.abs(r - rounds0) + (nMax - n) * 0.3;
+          if (!best || score < best.score) best = { c, e, score };
+        } return best; };
+      let best = pickBest(cfg.wu, cfg.cd);
+      for (let wu = cfg.wu, cd = cfg.cd; best.e > dur + 2 && (wu > 2 || cd > 1);) { if (wu > 2) wu--; else cd--; best = pickBest(wu, cd); }
+      cfg = best.c;
+      return { cfg, mainAll };
+    };
+    const r0 = (plan.phase === 'taper' || plan.phase === 'race') ? Math.max(1, start.r - 1) : start.r;
+    let cfg, mainAll;
+    if (plan.rec && plan.phase !== 'race') {
+      // R5: the exercises (and their number) of the week before, one round fewer, × 0,85, nothing added
+      const prev = fit(doseFactor2(p, plan, type, Math.max(0, weekInBlock(p, plan.w) - 1)), r0);
+      cfg = { ...prev.cfg }; if (cfg.r > 1) cfg.r--; else if (cfg.n > nMust) cfg.n--;   // already 1 round (short session): one optional exercise fewer
+      mainAll = mainFor(doseFactor2(p, plan, type));
+    } else ({ cfg, mainAll } = fit(doseFactor2(p, plan, type), r0));
+    blocks.push({ k: 'wu', rounds: 1, rest: 0, items: wuAll.slice(0, cfg.wu) });
+    blocks.push({ k: 'main', rounds: cfg.r, rest, roundRest: rest + 30, items: mainAll.slice(0, cfg.n) });
+    blocks.push({ k: 'cd', rounds: 1, rest: 0, items: cdAll.slice(0, cfg.cd) });
+    return finish({ type, dur, style, level, blocks, key: slot.key, test: !!slot.test, travel, eng: 2, ident, intent, wph });
+  }
+
+  // MOB: region emphasis rotates per week and per MOB session; avoid the stretches of this week's cool-downs (R2/R6)
+  const [nr0, nm0, ns0] = MOB_COUNTS[dur] || MOB_COUNTS[30];
+  const lvl = Math.min(level, 2), wib = weekInBlock(p, plan.w);
+  const cdUsed = new Set();
+  plan.slots.filter(s => wk.out[s.key]).forEach(s => {
+    const r = wk.out[s.key]; sidePicks(s.type, r.ident, effLevel(p, s.type), plan, ctx, r.main.map(x => x.e.id)).cd.forEach(x => cdUsed.add(x.e.id));
+  });
+  const emph = MOB_EMPH[(wib + (slot.idx || 1) - 1) % 3];
+  const used = new Set();
+  const one = (sp, lv, i, avoid) => pick2(sp, { level: lv, wide: false, rot: hashStr(`MOB|${sp}|${i}`) % 997 + plan.block * 3 + wib, weekUsed: avoid, sesUsed: used, ctx, allowRepeat: true });
+  const take = (specs, lv, avoid) => specs.map((sp, i) => { const pk = one(sp, lv, i, avoid); if (pk) used.add(pk.e.id); return pk; }).filter(Boolean)
+    .map(x => mk(x.e, x.pat, parseDose(x.e.dose)));
+  const rollAll = take(TPL.MOB.roll, 1, new Set());
+  const mobAll = take(emph, lvl, cdUsed);
+  const stabAll = take(TPL.MOB.stab, lvl, wk.weekUsed);
+  let c = { r: Math.min(nr0, rollAll.length), m: Math.min(mobAll.length, nm0 + Math.max(0, nr0 - rollAll.length)), s: Math.min(ns0, stabAll.length), f: 1, mr: 1 };
+  const sc = (arr, n, f) => arr.slice(0, n).map(i => ({ ...i, dose: scaleDose(i.dose, f) }));
+  const est = c => (sc(rollAll, c.r, c.f).concat(sc(stabAll, c.s, 1)).reduce((a, i) => a + itemSeconds(i.dose) + 5, 0)
+    + c.mr * sc(mobAll, c.m, c.f).reduce((a, i) => a + itemSeconds(i.dose) + 5, 0)) / 60;
+  for (let k = 0; k < 40; k++) {
+    const e = est(c);
+    if (e < dur - 2) {
+      if (c.f < 1.35) c.f = Math.round((c.f + 0.15) * 100) / 100;
+      else if (c.m < mobAll.length) c.m++;
+      else if (c.r < rollAll.length) c.r++;
+      else if (c.s < stabAll.length) c.s++;
+      else if (c.f < 1.6) c.f = Math.round((c.f + 0.25) * 100) / 100;
+      else if (c.mr < 2) { c.mr = 2; c.f = 1; }
+      else break;
+    } else if (e > dur + 2) {
+      if (c.m > 3) c.m--; else if (c.mr > 1) c.mr = 1; else if (c.r > 1) c.r--; else if (c.s > 1) c.s--; else break;
+    } else break;
+  }
+  if (c.r) blocks.push({ k: 'roll', rounds: 1, rest: 0, items: sc(rollAll, c.r, c.f) });
+  blocks.push({ k: 'mob', rounds: c.mr, rest: 0, items: sc(mobAll, c.m, c.f) });
+  blocks.push({ k: 'stab', rounds: 1, rest: 0, items: sc(stabAll, c.s, 1) });
+  return finish({ type, dur, style: 'recovery', level, blocks, key: slot.key, test: false, travel, eng: 2, emph: (wib + (slot.idx || 1) - 1) % 3, wph });
+}
+/* the main exercises planned in a week (for the swap list: avoid offering what is done on another day) */
+function weekMainIds(p, plan) { try { return weekPicks(p, plan).weekUsed; } catch (e) { return new Set(); } }
