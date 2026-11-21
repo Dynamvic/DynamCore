@@ -7,7 +7,7 @@
      v21 = added in v2.1: only the v2.1 builder plans it, so weeks built by the v2.0.1 builder keep their exercises;
      v1avoid=… = the avoid list the v2.0.1 builder used, when the avoid list was changed later (keeps old weeks unchanged))
    v2.1 (coach 20-11-2026): M13 couch stretch and M18 pigeon also avoided with a hip/groin complaint.
-   v2.1: R19–R22, H21–H25, L14–L17 added (patterns backext = back-extensor endurance, add = adductors). Doses confirmed by the coach 20-11-2026.
+   v2.1: R19–R22, H21–H25, L14–L17 added (patterns backext = back-extensor endurance, add = adductors). Doses are a FIRST ESTIMATE.
    | name NL | name EN | video search term | why NL | why EN | cues NL (;) | cues EN (;) | typical fault NL | typical fault EN
    Equipment codes: roller, ball, miniband, band, db, kb, swiss, bench, gym. Chair, wall, door and towel are assumed available. */
 const EX_TABLE = `

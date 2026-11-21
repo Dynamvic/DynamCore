@@ -72,7 +72,7 @@ const I18N = {
     intervals_note: 'Automatisch versturen naar Intervals.icu volgt in een volgende stap.',
     with_test: 'Begin met de test (±10 min)', why: 'Waarom', cues: 'Let op', fault: 'Typische fout', video: 'Video', level: 'Niveau', equipment: 'Materiaal', not_with: 'Niet bij',
     // guided
-    g_work: 'Werk', g_rest: 'Rust', g_next: 'Volgende', g_round: 'Ronde {a}/{b}', g_left: 'Links', g_right: 'Rechts', g_switch: 'Wissel van kant', g_get_ready: 'Klaar maken', g_done_btn: 'Klaar', g_pause: 'Pauze', g_resume: 'Verder', g_stop: 'Stop', g_skip: 'Volgende', g_voice: 'Stem',
+    g_work: 'Werk', g_rest: 'Rust', g_next: 'Volgende', g_round: 'Ronde {a}/{b}', g_left: 'Links', g_right: 'Rechts', g_switch: 'Wissel van kant', g_get_ready: 'Klaar maken', g_done_btn: 'Klaar', g_pause: 'Pauze', g_resume: 'Verder', g_stop: 'Stop', g_skip: 'Sla over', g_voice: 'Stem',
     g_finished: 'Sessie voltooid', g_rpe: 'Hoe zwaar was het? (RPE 1–10)', g_save: 'Bewaar', rpe_hint: 'Doel: {r}',
     adj_harder: 'Twee keer licht: je volgende {t}-sessies worden iets zwaarder.', adj_easier: 'Zwaar: je volgende {t}-sessies worden iets lichter.',
     rpe_labels: ['Rust', 'Heel licht', 'Licht', 'Matig', 'Wat zwaar', 'Zwaar', 'Zwaar+', 'Heel zwaar', 'Heel zwaar+', 'Bijna max', 'Maximaal'],
@@ -112,7 +112,29 @@ const I18N = {
     icu_setup: 'Vul je API-sleutel in bij Instellingen om sessies automatisch te versturen.', icu_privacy: 'Wie toegang heeft tot deze telefoon, kan met de sleutel je Intervals.icu-gegevens lezen. Verwijder de sleutel als je de telefoon doorgeeft.',
     icu_ok: 'Verbinding gelukt{n}.', icu_sent: '{n} sessies verstuurd of bijgewerkt in Intervals.icu.', icu_nothing: 'Niets nieuws om te versturen.',
     icu_err_nokey: 'Vul eerst je API-sleutel in.', icu_err_auth: 'Intervals.icu weigert de sleutel. Controleer de API-sleutel en atleet-ID.', icu_err_blocked: 'Intervals.icu laat geen rechtstreekse oproepen vanuit de app toe (of er is geen internet). Gebruik de kopieerknop per sessie.', icu_err_http: 'Intervals.icu gaf fout {s}.',
-    voice_pick: 'Stem', voice_auto: 'Automatisch', voice_test: 'Test stem', voice_none: 'Geen stem gevonden voor deze taal op dit toestel.'
+    voice_pick: 'Stem', voice_auto: 'Automatisch', voice_test: 'Test stem', voice_none: 'Geen stem gevonden voor deze taal op dit toestel.',
+    /* v2.2 */
+    wz_accept_hint: 'Vink eerst aan dat je het gelezen hebt.', wk_prev: 'Vorige week', wk_next: 'Volgende week', sw_label: 'Stopwatch',
+    chart_empty: 'Na je eerste test zie je hier je evolutie.', lib_empty: 'Geen oefeningen gevonden. Pas je zoekterm of filter aan.',
+    test_enter: 'Test invullen · week {n}', icu_copy_sum: 'Kopieer voor Intervals.icu', dn_change: 'wijzig',
+    today_hdr: 'Vandaag', today_rest: 'Rustdag', today_alldone: 'Alles gedaan voor vandaag', today_next: 'Volgende: {d} · {t}', today_also: 'Ook vandaag: {t}', today_done_btn: 'Gedaan',
+    more: 'Meer opties', week_opts: 'Weekopties', anim_play: 'Toon de beweging',
+    g_upnext: 'Hierna', g_count: 'Oefening {a} van {b}',
+    /* v2.3: phase captions in the animations (guided mode and exercise sheet) */
+    al_down: 'Zak', al_up: 'Omhoog', al_hold: 'Houd', al_out: 'Strek uit', al_back: 'Terug', al_press: 'Druk uit', al_crunch: 'Elleboog naar knie',
+    al_right: 'Rechts', al_left: 'Links', al_mid: 'Midden', al_fold: 'Plooi voorover', al_rock: 'Heupen naar achter', al_slide: 'Schuif naar achter',
+    al_thread: 'Steek door', al_open: 'Open', al_heels: 'Hielen omhoog', al_in: 'Naar positie',
+    al_step: 'Stap opzij', al_close: 'Sluit aan', al_toes: 'Naar de tenen', al_heel: 'Naar de hiel',
+    al_around: 'Rond het hoofd', al_roll: 'Rol', al_squeeze: 'Knijp', al_tap: 'Tik schouder', al_y: 'Y', al_t: 'T', al_w: 'W',
+    al_sweep: 'Zwaai naar achter', al_row: 'Roei', al_pull: 'Trek naar je borst', al_circle: 'Kleine cirkels',
+    al_walk: 'Stap rechtop', al_chop: 'Hak diagonaal', al_lift: 'Hef diagonaal', al_inhale: 'Adem in', al_exhale: 'Adem uit', al_snap: 'Heupen naar voor', al_tuck: 'Knieën naar borst',
+    al_stepup: 'Stap op', al_drive: 'Knie omhoog', al_apart: 'Trek uit elkaar', al_sit: 'Ga zitten', al_stand: 'Sta op',
+    al_jump: 'Spring', al_crawl: 'Kruip', al_pedal: 'Wissel hiel', al_cat: 'Bol de rug', al_cow: 'Hol de rug', al_toesup: 'Tenen omhoog',
+    al_climb: 'Wissel been', al_curl: 'Rol de bal in',
+    /* v2.3: singular forms (used when the count is 1) */
+    done_prog: 'Sessie {a} van {b} gedaan deze week.',
+    streak_1: 'Reeks: 1 volledige week op rij',card_streak_1: 'volledige week op rij', card_total_1: 'sessie totaal',
+    kind_sessions_1: 'sessie', kind_minutes_1: 'minuut', kind_weeks_1: 'volledige week', kind_type_1: '{t}-sessie'
   },
   en: {
     days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
@@ -181,7 +203,7 @@ const I18N = {
     copy_intervals: 'Copy for Intervals.icu', copied: 'Copied', copy_fail: 'Text selected: copy it manually',
     intervals_note: 'Sending to Intervals.icu automatically comes in a next step.',
     with_test: 'Start with the test (~10 min)', why: 'Why', cues: 'Cues', fault: 'Typical fault', video: 'Video', level: 'Level', equipment: 'Equipment', not_with: 'Not with',
-    g_work: 'Work', g_rest: 'Rest', g_next: 'Next', g_round: 'Round {a}/{b}', g_left: 'Left', g_right: 'Right', g_switch: 'Switch sides', g_get_ready: 'Get ready', g_done_btn: 'Done', g_pause: 'Pause', g_resume: 'Resume', g_stop: 'Stop', g_skip: 'Next', g_voice: 'Voice',
+    g_work: 'Work', g_rest: 'Rest', g_next: 'Next', g_round: 'Round {a}/{b}', g_left: 'Left', g_right: 'Right', g_switch: 'Switch sides', g_get_ready: 'Get ready', g_done_btn: 'Done', g_pause: 'Pause', g_resume: 'Resume', g_stop: 'Stop', g_skip: 'Skip', g_voice: 'Voice',
     g_finished: 'Session complete', g_rpe: 'How hard was it? (RPE 1–10)', g_save: 'Save', rpe_hint: 'Target: {r}',
     adj_harder: 'Easy twice: your next {t} sessions get a bit harder.', adj_easier: 'Very hard: your next {t} sessions get a bit easier.',
     rpe_labels: ['Rest', 'Very light', 'Light', 'Moderate', 'Somewhat hard', 'Hard', 'Hard+', 'Very hard', 'Very hard+', 'Near max', 'Maximal'],
@@ -216,7 +238,29 @@ const I18N = {
     icu_setup: 'Enter your API key in Settings to send sessions automatically.', icu_privacy: 'Anyone with access to this phone can read your Intervals.icu data with the key. Remove the key before handing the phone on.',
     icu_ok: 'Connection works{n}.', icu_sent: '{n} sessions sent or updated in Intervals.icu.', icu_nothing: 'Nothing new to send.',
     icu_err_nokey: 'Enter your API key first.', icu_err_auth: 'Intervals.icu rejects the key. Check the API key and athlete ID.', icu_err_blocked: 'Intervals.icu does not allow direct calls from the app (or there is no internet). Use the copy button per session.', icu_err_http: 'Intervals.icu returned error {s}.',
-    voice_pick: 'Voice', voice_auto: 'Automatic', voice_test: 'Test voice', voice_none: 'No voice found for this language on this device.'
+    voice_pick: 'Voice', voice_auto: 'Automatic', voice_test: 'Test voice', voice_none: 'No voice found for this language on this device.',
+    /* v2.2 */
+    wz_accept_hint: 'First tick that you have read it.', wk_prev: 'Previous week', wk_next: 'Next week', sw_label: 'Stopwatch',
+    chart_empty: 'After your first test you will see your progress here.', lib_empty: 'No exercises found. Change your search or filter.',
+    test_enter: 'Enter test · week {n}', icu_copy_sum: 'Copy for Intervals.icu', dn_change: 'change',
+    today_hdr: 'Today', today_rest: 'Rest day', today_alldone: 'All done for today', today_next: 'Next: {d} · {t}', today_also: 'Also today: {t}', today_done_btn: 'Done',
+    more: 'More options', week_opts: 'Week options', anim_play: 'Show the movement',
+    g_upnext: 'Up next', g_count: 'Exercise {a} of {b}',
+    /* v2.3: phase captions in the animations (guided mode and exercise sheet) */
+    al_down: 'Lower', al_up: 'Up', al_hold: 'Hold', al_out: 'Reach', al_back: 'Back', al_press: 'Press out', al_crunch: 'Elbow to knee',
+    al_right: 'Right', al_left: 'Left', al_mid: 'Centre', al_fold: 'Fold forward', al_rock: 'Hips back', al_slide: 'Slide back',
+    al_thread: 'Thread through', al_open: 'Open up', al_heels: 'Heels up', al_in: 'Get into position',
+    al_step: 'Step out', al_close: 'Close', al_toes: 'To the toes', al_heel: 'To the heel',
+    al_around: 'Around the head', al_roll: 'Roll', al_squeeze: 'Squeeze', al_tap: 'Tap shoulder', al_y: 'Y', al_t: 'T', al_w: 'W',
+    al_sweep: 'Sweep back', al_row: 'Row', al_pull: 'Pull to chest', al_circle: 'Small circles',
+    al_walk: 'Walk tall', al_chop: 'Chop across', al_lift: 'Lift across', al_inhale: 'Breathe in', al_exhale: 'Breathe out', al_snap: 'Snap the hips', al_tuck: 'Knees to chest',
+    al_stepup: 'Step up', al_drive: 'Drive the knee', al_apart: 'Pull apart', al_sit: 'Sit down', al_stand: 'Stand up',
+    al_jump: 'Jump', al_crawl: 'Crawl', al_pedal: 'Switch heel', al_cat: 'Round the back', al_cow: 'Arch the back', al_toesup: 'Toes up',
+    al_climb: 'Switch legs', al_curl: 'Roll the ball in',
+    /* v2.3: singular forms (used when the count is 1) */
+    done_prog: 'Session {a} of {b} done this week.',
+    streak_1: 'Streak: 1 complete week in a row',card_streak_1: 'complete week in a row', card_total_1: 'session in total',
+    kind_sessions_1: 'session', kind_minutes_1: 'minute', kind_weeks_1: 'complete week', kind_type_1: '{t} session'
   }
 };
 

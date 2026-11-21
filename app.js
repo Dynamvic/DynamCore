@@ -1,7 +1,7 @@
 'use strict';
 /* DynamCore – user interface. Data: exercises.js, engine.js, i18n.js. Everything is stored on this phone only. */
 
-const VERSION = '2.1.0';
+const VERSION = '2.3.0';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -76,6 +76,8 @@ function t(k, v) {
   if (v && typeof s === 'string') for (const x in v) s = s.split(`{${x}}`).join(v[x]);
   return s;
 }
+/* v2.3: singular form when the count is 1 (key + '_1' in i18n.js, e.g. "1 volledige week" instead of "1 volledige weken") */
+function tn(k, n, v) { const one = +n === 1 && ((I18N[lang()] && I18N[lang()][k + '_1']) ?? I18N.nl[k + '_1']) !== undefined; return t(one ? k + '_1' : k, { n, ...(v || {}) }); }
 const exName = id => EXMAP[id] ? EXMAP[id].n[lang()] : id;
 function fmtDose(d) {
   const side = d.side ? t('per_side') : '';
@@ -104,7 +106,9 @@ const IC = {
   x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   sound: '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg>',
   mute: '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>',
-  watch: '⏱'
+  watch: '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9.5 2.5h5M19 6l-1.5 1.5"/></svg>',   // v2.3: SVG instead of the ⏱ glyph
+  stop: '<svg viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor"/></svg>',
+  more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/></svg>'
 };
 const EQIC = {
   db: '<svg viewBox="0 0 24 24"><path d="M6.5 7v10M17.5 7v10M3.5 9.5v5M20.5 9.5v5M6.5 12h11"/></svg>',
@@ -210,10 +214,12 @@ function vWizard() {
   } else if (st.summary) body = summaryCard(d);
   else body = st.fields.map(f => field(d, f)).join('');
   const canNext = step === 0 ? d.accepted : step === 5 ? (UI.wz.testMode === 'later' || (UI.wz.testMode === 'now' && levelFromTest(UI.wz.test))) : true;
+  // v2.2: on step 1 a hint under the bar says why Next is grey; tapping it scrolls the checkbox into view (small iPhones)
+  const hint = step === 0 && !d.accepted ? `<button type="button" class="wzhint" data-act="wzhint">${t('wz_accept_hint')}</button>` : '';
   return `<div class="wz"><div class="wzhead"><span class="eyebrow">${t('wz_step', { a: step + 1, b: WZ_STEPS.length })}</span><div class="wzbar"><i style="width:${(step + 1) / WZ_STEPS.length * 100}%"></i></div></div>
     <h1 class="h1">${t(st.title)}</h1>${body}
-    <div class="wznav">${step ? `<button class="btn quiet" data-act="wzback">${t('back')}</button>` : '<span></span>'}
-    <button class="btn" data-act="${st.summary ? 'wzfinish' : 'wznext'}" ${canNext ? '' : 'disabled'}>${st.summary ? t('wz_go') : t('next')}</button></div></div>`;
+    <div class="wznav">${hint}<div class="wzbtns">${step ? `<button class="btn quiet" data-act="wzback">${t('back')}</button>` : '<span></span>'}
+    <button class="btn primary" data-act="${st.summary ? 'wzfinish' : 'wznext'}" ${canNext ? '' : 'disabled'}>${st.summary ? t('wz_go') : t('next')}</button></div></div></div>`;
 }
 function summaryCard(d) {
   const lv = d.level || (UI.wz && UI.wz.testMode === 'now' ? levelFromTest(UI.wz.test) : 1) || 1;
@@ -238,7 +244,7 @@ const TFIELDS = [
 ];
 function testForm(vals) {
   return `<p class="small muted">${t('test_hint')}</p><div class="tform">${TFIELDS.map(f => {
-    const inp = (key, lab) => `<div class="tin">${lab ? `<span>${lab}</span>` : ''}<input id="t-${key}" data-tk="${key}" inputmode="${f.unit === 'cm' ? 'text' : 'numeric'}" value="${vals[key] ?? ''}" aria-label="${t(f.k.toLowerCase())} ${lab || ''}"><span>${f.unit === 'reps' ? t('reps') : f.unit}</span>${f.sw ? `<button type="button" class="swb${UI.sw && UI.sw.f === key ? ' on' : ''}" data-act="sw" data-f="${key}" aria-label="stopwatch">${UI.sw && UI.sw.f === key ? '■' : IC.watch}</button>` : ''}</div>`;
+    const inp = (key, lab) => `<div class="tin">${lab ? `<span>${lab}</span>` : ''}<input id="t-${key}" data-tk="${key}" inputmode="${f.unit === 'cm' ? 'text' : 'numeric'}" value="${vals[key] ?? ''}" aria-label="${t(f.k.toLowerCase())} ${lab || ''}"><span>${f.unit === 'reps' ? t('reps') : f.unit}</span>${f.sw ? `<button type="button" class="swb${UI.sw && UI.sw.f === key ? ' on' : ''}" data-act="sw" data-f="${key}" aria-label="${t('sw_label')}">${UI.sw && UI.sw.f === key ? IC.stop : IC.watch}</button>` : ''}</div>`;
     return `<div class="tf"><b>${f.k} · ${t(f.k.toLowerCase())}</b><small class="muted">${t(f.k.toLowerCase() + 's')}</small><div class="tins">${f.lr ? inp(f.k + 'L', t('left')) + inp(f.k + 'R', t('right')) : inp(f.k, '')}</div></div>`;
   }).join('')}</div>`;
 }
@@ -252,20 +258,20 @@ function vWeek() {
   if (UI.viewWeek == null) UI.viewWeek = Math.max(1, cw);
   const w = UI.viewWeek, plan = weekPlan(P, S, w);
   let top = topbar(P.name ? `${P.name}` : 'DynamCore');
-  if (P.paused) return top + `<div class="card"><p>${t('paused', { d: DN.fmtY(P.paused) })}</p><button class="btn" data-act="resume">${t('resume')}</button></div>`;
-  const pills = `<span class="pill ph-${plan.phase}">${t('phase_' + plan.phase)}</span>${plan.rec ? `<span class="pill rec">${plan.phase === 'race' ? t('rec_race') : t('recovery_week')}</span>` : ''}`;
+  if (P.paused) return top + `<div class="card"><p>${t('paused', { d: DN.fmtY(P.paused) })}</p><button class="btn primary" data-act="resume">${t('resume')}</button></div>`;
+  const tv = !!plan.travel;
+  const pills = `<span class="pill ph-${plan.phase}">${t('phase_' + plan.phase)}</span>${plan.rec ? `<span class="pill rec">${plan.phase === 'race' ? t('rec_race') : t('recovery_week')}</span>` : ''}${tv ? `<span class="pill rec">${t('travel_mode')}</span>` : ''}`;
   let html = top + `<section class="weekhead">
-    <button class="iconbtn" data-act="wk" data-d="-1" aria-label="-1" ${w <= 1 ? 'disabled' : ''}>${IC.left}</button>
+    <button class="iconbtn" data-act="wk" data-d="-1" aria-label="${t('wk_prev')}" ${w <= 1 ? 'disabled' : ''}>${IC.left}</button>
     <div><div class="big">${t('week_n', { n: w })}</div><div class="sub">${DN.fmt(plan.monday)} – ${DN.fmt(plan.monday + 6)} ${pills}</div></div>
-    <button class="iconbtn" data-act="wk" data-d="1" aria-label="+1">${IC.right}</button></section>`;
+    <button class="iconbtn" data-act="wk" data-d="1" aria-label="${t('wk_next')}">${IC.right}</button></section>`;
+  if (w === cw) html += todayCard(plan);
   html += accExpiryWarning() + backupReminder();
   if (cw < 1 && w === 1) html += `<div class="card"><p>${t('not_started', { d: DN.fmtY(startNum(P)) })}</p></div>`;
-  if (S.suggest && S.suggest !== P.level) html += `<div class="card ok"><p>${t('suggest_level', { l: S.suggest, name: t('lvl_' + S.suggest) })}</p><div class="row"><button class="btn" data-act="acceptlvl">${t('accept')}</button><button class="btn quiet" data-act="declinelvl">${t('decline')}</button></div></div>`;
+  if (S.suggest && S.suggest !== P.level) html += `<div class="card ok"><p>${t('suggest_level', { l: S.suggest, name: t('lvl_' + S.suggest) })}</p><div class="row"><button class="btn primary" data-act="acceptlvl">${t('accept')}</button><button class="btn quiet" data-act="declinelvl">${t('decline')}</button></div></div>`;
   const testSlot = plan.slots.find(s => s.test);
   if (testSlot) html += `<div class="card"><p>${t('test_due', { d: dayName(testSlot.day, true) })} <a href="#progress" data-act="gotest" data-w="${w}">${t('go_test')}</a></p></div>`;
   if (plan.dropped) html += `<div class="card warnc"><p>${t('dropped_warn', { n: plan.dropped })}</p></div>`;
-  const tv = !!plan.travel;
-  html += `<div class="row">${chip('travel', `data-w="${w}"`, tv, t('travel_mode'))}</div>${tv ? `<p class="small muted">${t('travel_on')}</p>` : ''}`;
   // days
   let rows = '';
   for (let d = 0; d < 7; d++) {
@@ -277,22 +283,61 @@ function vWeek() {
   const total = plan.slots.filter(s => !s.skipped).length, done = plan.slots.filter(s => isDone(w, s.key)).length;
   html += `<section class="days">${rows}</section>
     <div class="prog"><div class="lbl"><span>${t('week_progress', { a: done, b: total })}</span><span>${streakText()}</span></div><div class="bar"><i style="width:${total ? done / total * 100 : 0}%"></i></div></div>
-    <button class="btn ghost wide" data-act="grpshare">${t('share_week')}</button>
+    <div class="row wkfoot"><button class="btn ghost" data-act="grpshare">${t('share_week')}</button><button class="btn quiet" data-act="weekmenu" data-w="${w}">${t('week_opts')}</button></div>
     ${installCard()}<p class="small muted disc">${t('disclaimer')}</p>`;
   return html;
+}
+/* v2.2: "Vandaag" card on the current week – one tap to start today's session, one to mark it done.
+   Shows today's first session that is not done, skipped or paused; a second one today is linked below it.
+   Rest day / all done: a line with the next open session of this week (no Start). Group session: only "Gedaan".
+   Missed sessions of earlier days are not repeated here (they stay in the day list). */
+const openSlot = (w, s) => !s.skipped && !s.paused && !isDone(w, s.key);
+function todayCard(plan) {
+  const w = plan.w, d = today() - plan.monday; if (d < 0 || d > 6 || P.paused) return '';
+  const todays = plan.slots.filter(s => s.day === d), open = todays.filter(s => openSlot(w, s));
+  const head = `<span class="eyebrow">${t('today_hdr')} · ${dayName(d, true)} ${DN.fmt(plan.monday + d)}</span>`;
+  if (!open.length) {
+    const nx = plan.slots.filter(s => s.day > d && openSlot(w, s)).sort((a, b) => a.day - b.day)[0];
+    const msg = todays.length && todays.every(s => isDone(w, s.key)) ? `${IC.check} ${t('today_alldone')}` : t('today_rest');
+    return `<section class="card todayc quiet">${head}<p class="tdl${todays.length ? ' ok' : ''}">${msg}</p>${nx ? `<p class="small muted">${t('today_next', { d: dayName(nx.day, true), t: esc(slotTitle(nx)) })}</p>` : ''}</section>`;
+  }
+  const s = open[0], also = open[1];
+  const alsoL = also ? `<button class="linkbtn" ${also.type === 'GROUP' ? `data-act="grpopen" data-w="${w}"` : `data-act="open" data-w="${w}" data-k="${also.key}"`}>${t('today_also', { t: esc(slotTitle(also)) })}</button>` : '';
+  if (s.type === 'GROUP')
+    return `<section class="card todayc" style="--tc:${typeColor('GROUP')}">${head}<b class="tdt">${esc(slotTitle(s))}</b>
+      <div class="tdb"><button class="btn big" data-act="grpopen" data-w="${w}">${IC.check}<span>${t('today_done_btn')}</span></button></div>${alsoL}</section>`;
+  const ses = buildSession(P, S, plan, s);
+  return `<section class="card todayc" style="--tc:${typeColor(s.type)}">${head}
+    <button class="si" data-act="open" data-w="${w}" data-k="${s.key}"><b class="tdt">${t('type_' + s.type)}${s.test ? ' + TEST' : ''}</b><span class="meta">${t('est', { n: ses.est })} · ${ses.ident ? t('ident_' + ses.type + '_' + ses.ident) : t('style_' + ses.style)} · RPE ${RPE_TARGET[s.type]}</span>${eqIcons(sessionEquip(P, ses))}</button>
+    <div class="tdb"><button class="btn big" data-act="todaystart" data-w="${w}" data-k="${s.key}">${IC.play}<span>${t('start')}</span></button><button class="btn quiet" data-act="todaydone" data-w="${w}" data-k="${s.key}">${IC.check}<span>${t('today_done_btn')}</span></button></div>${alsoL}</section>`;
 }
 function slotCard(plan, s, dn) {
   const w = plan.w, done = isDone(w, s.key), td = today();
   const missed = !done && !s.skipped && dn < td;
   let status = done ? `<span class="st ok">${IC.check} ${t('status_done')}${rpeOf(w, s.key) != null ? ` · RPE ${rpeOf(w, s.key)}` : ''}</span>` : s.paused ? `<span class="st">${t('status_paused')}</span>` : s.skipped ? `<span class="st">${t('status_skipped')}</span>` : missed ? `<span class="st bad">${t('status_missed')}</span>` : '';
+  // v2.2: secondary actions (move, skip, adjust, mark done) live in one "⋯" sheet per session
+  const menu = (s.type === 'GROUP' || !(done || s.paused)) ? `<button class="iconbtn more" data-act="slotmenu" data-w="${w}" data-k="${s.key}" aria-label="${t('more')} · ${esc(slotTitle(s))}">${IC.more}</button>` : '';
   if (s.type === 'GROUP') {
-    return `<div class="slot" style="--tc:${typeColor('GROUP')}"><button class="si" data-act="grpopen" data-w="${w}"><span class="tk">${t('typeS_GROUP')}</span><b>${esc(slotTitle(s))}</b>${status}</button>
-      <div class="row sm">${done ? `<button class="btn tiny quiet" data-act="grpopen" data-w="${w}">${t('dn_edit_btn')}</button>` : s.skipped ? '' : `<button class="btn tiny" data-act="grpopen" data-w="${w}">${t('mark_done')}</button>`}${slotActs(plan, s, dn, done, true)}<button class="btn tiny quiet" data-act="groupedit" data-w="${w}">${t('group_edit')}</button></div></div>`;
+    return `<div class="slot" style="--tc:${typeColor('GROUP')}"><button class="si" data-act="grpopen" data-w="${w}"><span class="tk">${t('typeS_GROUP')}</span><b>${esc(slotTitle(s))}</b>${status}</button>${menu}</div>`;
   }
   const ses = buildSession(P, S, plan, s);
-  const acts = slotActs(plan, s, dn, done);
   return `<div class="slot" style="--tc:${typeColor(s.type)}"><button class="si" data-act="open" data-w="${w}" data-k="${s.key}">
-    <span class="tk">${t('typeS_' + s.type)}${s.test ? ' + TEST' : ''}</span><b>${t('type_' + s.type)}</b><span class="meta">${t('est', { n: ses.est })} · ${ses.ident ? t('ident_' + ses.type + '_' + ses.ident) : t('style_' + ses.style)} · RPE ${RPE_TARGET[s.type]}</span>${eqIcons(sessionEquip(P, ses))}${status}</button>${acts}</div>`;
+    <span class="tk">${t('typeS_' + s.type)}${s.test ? ' + TEST' : ''}</span><b>${t('type_' + s.type)}</b><span class="meta">${t('est', { n: ses.est })} · ${ses.ident ? t('ident_' + ses.type + '_' + ses.ident) : t('style_' + ses.style)} · RPE ${RPE_TARGET[s.type]}</span>${eqIcons(sessionEquip(P, ses))}${status}</button>${menu}</div>`;
+}
+function slotMenu(w, k) {
+  const plan = weekPlan(P, S, w), s = plan.slots.find(x => x.key === k); if (!s) return;
+  const done = isDone(w, k), dn = plan.monday + s.day, b = (act, label, extra = '') => `<button class="btn quiet wide" data-act="${act}" data-w="${w}" data-k="${k}" ${extra}>${label}</button>`;
+  let items = '';
+  if (!done && !s.paused) {
+    if (s.skipped) items += b('unskip', t('undo_skip'));
+    else {
+      items += s.type === 'GROUP' ? b('grpopen', t('mark_done')) : b('slotdone', t('mark_done'));
+      if (moveDays(plan, s).length) items += b('movesheet', t('move'));
+      items += b('skip', t('skip'));
+    }
+  }
+  if (s.type === 'GROUP') items += b('groupedit', t('group_edit'));
+  sheet(`<h3>${esc(slotTitle(s))}</h3><p class="small muted">${dayName(s.day, true)} ${DN.fmt(dn)}</p><div class="menu">${items}</div>`);
 }
 /* move / skip: for every session that is not done (missed, today or later). Moving stays within the same week. */
 function moveDays(plan, s) { const td = today(); return [0, 1, 2, 3, 4, 5, 6].filter(d => d !== s.day && plan.monday + d >= td); }
@@ -311,7 +356,7 @@ function streakText() {
     if (!need.length && pl.slots.some(s => s.paused)) continue;   // v2.0: a fully paused week neither counts nor breaks the streak
     if (need.length && need.every(s => isDone(w, s.key))) n++; else break;
   }
-  return n ? t('streak', { n }) : '';
+  return n ? tn('streak', n) : '';
 }
 
 /* ---------- session detail ---------- */
@@ -373,10 +418,11 @@ function vSession() {
   html += ses.blocks.map(b => `<section class="blk"><div class="bh"><span>${t('blk_' + b.k)}</span>${b.rounds > 1 || b.rest ? `<span class="muted">${b.rounds > 1 ? t('rounds', { n: b.rounds }) : ''}${b.rest ? ' · ' + t('rest_s', { n: b.rest }) : ''}</span>` : ''}</div>
     <ol class="ex">${b.items.map(i => `<li><button class="exr" data-act="exinfo" data-id="${i.id}"><span class="n">${esc(exName(i.id))}${i.cue ? `<small class="cue">${esc(t(i.cue))}</small>` : ''}</span><span class="dose">${fmtDose(i.dose)}</span></button>${r.routine || ses.logged ? '' : `<button class="iconbtn sm" data-act="swapsheet" data-id="${i.id}" data-orig="${i.orig}" aria-label="${t('swap')}">${IC.swap}</button>`}</li>`).join('')}</ol></section>`).join('');
   const done = !r.routine && isDone(plan.w, slot.key);
-  html += (done ? doneBlock(plan.w, slot.key, ses.type) : '') + `<div class="stick"><button class="btn wide big" data-act="guided">${IC.play}<span>${t('start_guided')}</span></button>
-    ${done ? '' : `<button class="btn quiet wide" data-act="markdone">${t('mark_done')}</button>`}
+  // v2.2: Start stays visible at the bottom of the screen (sticky above the tab bar); the Intervals.icu text is folded
+  html += (done ? doneBlock(plan.w, slot.key, ses.type) : '') + `<div class="stickbar"><button class="btn wide big" data-act="guided">${IC.play}<span>${t('start_guided')}</span></button></div>
+    <div class="stick">${done ? '' : `<button class="btn quiet wide" data-act="markdone">${t('mark_done')}</button>`}
     ${done || r.routine ? '' : `<div class="row center">${slotActs(plan, slot, plan.monday + slot.day, false, true)}</div>`}</div>
-    <section class="card"><h3>${t('intervals_hdr')}</h3><p class="small muted">${P.icuKey ? t('icu_send_note') : t('intervals_note')}</p><div class="row"><button class="btn ghost" data-act="copyint">${t('copy_intervals')}</button><span class="msg" id="cmsg"></span></div><pre class="itxt" id="itxt">${esc(intervalsText(r))}</pre></section>`;
+    <details class="card icuc"><summary>${t('icu_copy_sum')}</summary><p class="small muted">${P.icuKey ? t('icu_send_note') : t('intervals_note')}</p><div class="row"><button class="btn ghost" data-act="copyint">${t('copy_intervals')}</button><span class="msg" id="cmsg"></span></div><pre class="itxt" id="itxt">${esc(intervalsText(r))}</pre></details>`;
   return html;
 }
 function intervalsText(r) {
@@ -405,7 +451,7 @@ function vPlan() {
       <button class="chip sm" data-act="togrec" data-w="${w}" aria-pressed="${pl.rec}" title="${t('toggle_rec')}">${t('recovery_week').split(' ')[0]}</button></div>`;
   }
   html += `<section class="plist">${rows}</section>
-    <section class="card"><h3>${t('intervals_hdr')}</h3>${P.icuKey ? `<div class="row"><button class="btn" data-act="icusend">${t('icu_send')}</button></div><p class="msg" id="icumsg" aria-live="polite"></p><p class="small muted">${t('icu_send_note')}</p>` : `<p class="small muted">${t('icu_setup')}</p><button class="btn ghost" data-act="go" data-to="settings">${t('settings')}</button>`}</section>
+    <section class="card"><h3>${t('intervals_hdr')}</h3>${P.icuKey ? `<div class="row"><button class="btn primary" data-act="icusend">${t('icu_send')}</button></div><p class="msg" id="icumsg" aria-live="polite"></p><p class="small muted">${t('icu_send_note')}</p>` : `<p class="small muted">${t('icu_setup')}</p><button class="btn ghost" data-act="go" data-to="settings">${t('settings')}</button>`}</section>
     <section class="card"><h3>${t('ics_export')}</h3><div class="row">${[4, 8, 12].map(n => `<button class="btn ghost" data-act="ics" data-n="${n}">${t('ics_weeks', { n })}</button>`).join('')}</div><p class="small muted">${t('ics_note')}</p></section>`;
   return html;
 }
@@ -428,14 +474,15 @@ function vProgress() {
   let html = topbar(t('progress_title'));
   html += `<section class="card"><div class="row between"><div><span class="eyebrow">${t('cur_level')}</span><div class="lvl">${lv} · ${t('lvl_' + lv)} ${lvlDots(lv)}</div></div></div>
     <p class="small muted">${t('adj_now')}: ${['CORE', 'LEG', 'MOB'].map(x => `${t('typeS_' + x)} ${((P.adj || {})[x] || 0) > 0 ? '+' : ''}${(P.adj || {})[x] || 0}`).join(' · ')}</p></section>`;
-  html += grpSection();
-  html += `<section class="card"><h3>${t('new_test', { n: UI.testW })}</h3>${testForm(rec)}<p class="msg" id="tmsg"></p></section>`;
-  html += `<h2 class="h2">${t('progress_title')}</h2>` + ['T1', 'T2', 'T3', 'T4', 'T5'].map(k => `<section class="card"><h3>${k} · ${t(k.toLowerCase())}</h3>${testChart(k)}</section>`).join('');
-  // completion per week
+  // v2.2: results first (weeks done, test charts, recent sessions); the test form is folded behind "Test invullen"
+  // (opened directly from the "test due" link on the week); group challenges after the results.
+  html += `<details class="card testd" id="testd"${UI.testOpen ? ' open' : ''}><summary>${t('test_enter', { n: UI.testW })}</summary>${testForm(rec)}<p class="msg" id="tmsg"></p></details>`;
   const bars = []; for (let w = Math.max(1, cw - 7); w <= cw; w++) { const pl = weekPlan(P, S, w); const need = pl.slots.filter(s => !s.skipped).length; const d = pl.slots.filter(s => isDone(w, s.key)).length; bars.push({ w, need, d }); }
   html += `<section class="card"><h3>${t('weeks_done')}</h3><div class="wbars">${bars.map(b => `<div class="wb"><div class="wbc"><i style="height:${b.need ? b.d / b.need * 100 : 0}%"></i></div><small>${b.w}</small><small>${b.d}/${b.need}</small></div>`).join('')}</div></section>`;
+  html += `<h2 class="h2">${t('progress_title')}</h2>` + ['T1', 'T2', 'T3', 'T4', 'T5'].map(k => `<section class="card"><h3>${k} · ${t(k.toLowerCase())}</h3>${testChart(k)}</section>`).join('');
   const logs = S.logs.slice(-15).reverse();
   html += `<section class="card"><h3>${t('rpe_log')}</h3>${logs.length ? `<ul class="logs">${logs.map(l => `<li><span>${DN.fmt(l.d)}</span><span>${t('typeS_' + l.type)}</span><span>${l.rpe != null ? 'RPE ' + l.rpe : '–'}</span></li>`).join('')}</ul>` : `<p class="small muted">${t('no_logs')}</p>`}</section>`;
+  html += grpSection();
   return html;
 }
 function testVal(rec, k, side) { const v = rec[k + (side || '')]; return v === undefined || v === '' || v === null ? null : +v; }
@@ -445,7 +492,7 @@ function testChart(k) {
   const series = f.lr ? [['L', 'var(--accent)'], ['R', 'var(--t-LEG)']] : [['', 'var(--accent)']];
   const pts = series.map(([sd]) => recs.map(r => [r.w, testVal(r, k, sd)]).filter(p => p[1] != null));
   const vals = pts.flat().map(p => p[1]);
-  if (!vals.length) return `<p class="small muted">–</p>`;
+  if (!vals.length) return `<p class="small muted">${t('chart_empty')}</p>`;
   const W = 320, H = 150, Lm = 36, Rm = 12, T = 16, B = 24;
   const ws = recs.map(r => r.w); const w0 = Math.min(...ws), w1 = Math.max(...ws, w0 + 1);
   let lo = Math.min(0, ...vals), hi = Math.max(0, ...vals); if (hi === lo) hi = lo + 1; const pad = (hi - lo) * 0.18; hi += pad; if (lo < 0) lo -= pad;
@@ -466,15 +513,17 @@ function libList() {
   const q = UI.libQ.trim().toLowerCase(), ctx = makeCtx({ ...P, complaints: [], blocked: [] }, false);
   const list = EX.filter(e => !e.hidden && (UI.libCat === 'all' || CAT_OF(e.pat) === UI.libCat) && (!UI.libMine || !e.eq.length || e.eq.some(x => ctx.eq.has(x)))
     && (!q || `${e.id} ${e.n.nl} ${e.n.en} ${e.why[lang()]}`.toLowerCase().includes(q)));
-  return list.length ? list.map(e => `<div class="card">${exCard(e)}</div>`).join('') : `<p class="muted">–</p>`;
+  return list.length ? list.map(e => `<div class="card">${exCard(e, true)}</div>`).join('') : `<p class="muted">${t('lib_empty')}</p>`;
 }
-function exCard(e) {
+/* v2.2: in the library the figure is a still (saves battery while scrolling); tapping it plays the movement.
+   The YouTube search link is gone (coach 20-11-2026: leaves the app and needs internet). */
+function exCard(e, inLib) {
   const L = lang();
   const warn = e.avoid.filter(a => (P.complaints || []).includes(a));
-  return `<div class="exc">${ANIMV.svg(e.id)}${ANIMV.isFront(e.id) ? `<small class="muted">${t('front_view')}</small>` : ''}<div class="h"><b>${esc(e.n[L])}</b>${lvlDots(e.lvl)}</div>
+  const fig = inLib && ANIMV.has(e.id) ? `<button type="button" class="animbtn" data-act="animplay" aria-label="${t('anim_play')} · ${esc(e.n[L])}" aria-pressed="false">${ANIMV.svg(e.id, 'still')}<span class="playic">${IC.play}</span></button>` : ANIMV.svg(e.id, 'cue');   // v2.3: exercise sheet = option C
+  return `<div class="exc">${fig}${ANIMV.isFront(e.id) ? `<small class="muted">${t('front_view')}</small>` : ''}<div class="h"><b>${esc(e.n[L])}</b>${lvlDots(e.lvl)}</div>
     <p class="why">${esc(e.why[L])}</p><ul>${e.cue[L].map(c => `<li>${esc(c)}</li>`).join('')}</ul>
-    <dl class="kv sm"><dt>${t('fault')}</dt><dd>${esc(e.fault[L])}</dd><dt>${t('equipment')}</dt><dd>${e.eq.length ? e.eq.map(x => t('eq_' + x)).join(' / ') : '–'}</dd>${e.avoid.length ? `<dt>${t('not_with')}</dt><dd class="${warn.length ? 'warn' : ''}">${e.avoid.map(a => t('cmp_' + a)).join(', ')}</dd>` : ''}</dl>
-    <a href="https://www.youtube.com/results?search_query=${encodeURIComponent(e.q)}" target="_blank" rel="noopener">${t('video')}: “${esc(e.q)}” ↗</a></div>`;
+    <dl class="kv sm"><dt>${t('fault')}</dt><dd>${esc(e.fault[L])}</dd><dt>${t('equipment')}</dt><dd>${e.eq.length ? e.eq.map(x => t('eq_' + x)).join(' / ') : '–'}</dd>${e.avoid.length ? `<dt>${t('not_with')}</dt><dd class="${warn.length ? 'warn' : ''}">${e.avoid.map(a => t('cmp_' + a)).join(', ')}</dd>` : ''}</dl></div>`;
 }
 function vLibrary() {
   const cats = ['all', 'core', 'hips', 'legs', 'upper', 'stab', 'power', 'mob', 'roll'];
@@ -513,7 +562,7 @@ function vSettings() {
     + sec(t('s_app'), `<label class="check"><input type="checkbox" id="f-voice" data-field="voice" ${D.voice !== false ? 'checked' : ''}><span>${t('voice')}</span></label>
         ${voiceSelect(D)}
         <label class="check"><input type="checkbox" id="f-travel" data-field="travelAlways" ${D.travelAlways ? 'checked' : ''}><span>${t('travel_always')}</span></label>`)
-    + `<div class="stick"><button class="btn wide" data-act="savesettings">${t('save')}</button><span class="msg" id="smsg"></span></div>`
+    + `<div class="stick"><button class="btn wide primary" data-act="savesettings">${t('save')}</button><span class="msg" id="smsg"></span></div>`
     + sec(t('pause'), P.paused ? `<button class="btn" data-act="resume">${t('resume')}</button>` : `<button class="btn quiet" data-act="pause">${t('pause')}</button>`)
     + sec(t('intervals_hdr'), `<p class="small muted">${t('icu_lead')}</p>
         <label class="fld"><span class="lbl">${t('icu_key')}</span><input id="f-icukey" type="password" autocomplete="off" data-field="icuKey" value="${esc(D.icuKey || '')}"></label>
@@ -559,7 +608,8 @@ addEventListener('hashchange', () => { UI.resetArmed = false; if (location.hash 
 
 /* ---------- sheet ---------- */
 function sheet(html) {
-  const d = $('#sheet'); $('#sheetin').innerHTML = `<div class="grab"></div>${html}<button class="btn quiet wide" data-act="closesheet">${t('close')}</button>`;
+  // v2.3: one sheet pattern – close (✕, 44 px) top right; a sheet's main action sits fixed at the bottom (.sheetact); backdrop tap and Esc also close
+  const d = $('#sheet'); $('#sheetin').innerHTML = `<button class="iconbtn sheetx" data-act="closesheet" aria-label="${t('close')}">${IC.x}</button>${html}`;
   if (d.showModal) { if (!d.open) d.showModal(); } else d.setAttribute('open', '');
 }
 const closeSheet = () => { const d = $('#sheet'); if (d.open) d.close(); };
@@ -605,7 +655,7 @@ function buildSteps(ses) {
     const sides = d.side ? ['L', 'R'] : [null];
     sides.forEach((sd, si) => {
       const timed = d.k === 't' || d.k === 'b';
-      steps.push({ kind: 'work', id: it.id, dose: d, side: sd, timed, dur: d.k === 't' ? d.n : d.k === 'b' ? d.n * 10 : 0, blk: b.k, round: r + 1, rounds: b.rounds, cue: it.cue || null });
+      steps.push({ kind: 'work', id: it.id, dose: d, side: sd, timed, dur: d.k === 't' ? d.n : d.k === 'b' ? d.n * 10 : 0, blk: b.k, round: r + 1, rounds: b.rounds, cue: it.cue || null, ex: n + 1 });
       if (sd === 'L') steps.push({ kind: 'switch', dur: timed ? 5 : 3 });
     });
     const nxt = all[n + 1];
@@ -619,7 +669,7 @@ function buildSteps(ses) {
 function startGuided(r) {
   try { const AC = window.AudioContext || window.webkitAudioContext; if (AC) { G.ctx = G.ctx || new AC(); G.ctx.resume && G.ctx.resume(); } } catch (e) { }
   beep(1, 0.01);
-  G.r = r; G.steps = buildSteps(r.ses); G.i = 0; G.paused = false; G.done = false; G.lastBeep = null; G.t0 = Date.now(); G.pms = 0; G.ps = 0;
+  G.r = r; G.steps = buildSteps(r.ses); G.exTotal = G.steps.reduce((m, s) => Math.max(m, s.ex || 0), 0); G.flash = false; G.i = 0; G.paused = false; G.done = false; G.lastBeep = null; G.t0 = Date.now(); G.pms = 0; G.ps = 0;
   enter(true); render();
   $('#guided').hidden = false; document.body.classList.add('noscroll');
   wake(); clearInterval(G.iv); G.iv = setInterval(tick, 200); tick();
@@ -631,6 +681,7 @@ function stopGuided() {
 function enter(first) {
   const s = G.steps[G.i];
   G.start = Date.now(); G.end = s.dur ? Date.now() + s.dur * 1000 : 0;
+  if (!first) G.flash = true;   // v2.2: visible cue at every step change (iPhone has no vibration and the silent switch mutes beeps)
   if (s.kind === 'work') {
     const sideTxt = s.side ? ` ${s.side === 'L' ? t('g_left') : t('g_right')}.` : '';
     speak(`${exName(s.id)}.${sideTxt} ${fmtDose({ ...s.dose, side: false }).replace(t('sec'), lang() === 'nl' ? 'seconden' : 'seconds')}`);
@@ -661,27 +712,42 @@ function render() {
   const total = G.steps.length, pct = G.i / total * 100;
   const left = s.dur ? Math.max(0, Math.ceil(((G.paused ? G.left : G.end - Date.now())) / 1000)) : Math.floor((Date.now() - G.start) / 1000);
   const nextWork = G.steps.slice(G.i + 1).find(x => x.kind === 'work');
-  el.className = s.kind === 'work' ? 'work' : '';
-  let mid = '';
+  // v2.2: dark screen in both themes; work = accent colour, rest/ready/switch = teal (only the details carry the colour)
+  el.className = s.kind === 'work' ? 'work' : 'pause';
+  let mid = '', act = '';
   if (s.kind === 'work') {
     const e = EXMAP[s.id];
     mid = `<div class="kind">${t('blk_' + s.blk)}${s.side ? ' · ' + (s.side === 'L' ? t('g_left') : t('g_right')) : ''}</div>
-      ${ANIMV.svg(s.id)}<div class="big${ANIMV.has(s.id) ? ' sm' : ''}">${s.timed ? left : s.dose.n}</div><div class="unit">${s.timed ? t('sec') : t('reps')}</div>
+      ${ANIMV.svg(s.id, 'gfig cue cap', { tight: true, secs: !s.timed })}<div class="num"><span class="big${ANIMV.has(s.id) ? ' sm' : ''}">${s.timed ? left : s.dose.n}</span><span class="unit">${s.timed ? t('sec') : t('reps')}</span></div>
       <div class="exn">${esc(exName(s.id))}</div>${s.cue ? `<div class="cue icue">${esc(t(s.cue))}</div>` : ''}<div class="cue">${esc(e.cue[lang()][0])}</div>
-      ${!s.timed ? `<button class="gdone" data-act="gnext">${t('g_done_btn')}</button>` : ''}
-      ${nextWork && nextWork.id !== s.id ? `<div class="nxt">${t('g_next')}: ${esc(exName(nextWork.id))}</div>` : ''}`;
+      ${nextWork && nextWork.id !== s.id ? `<div class="nxt">${t('g_upnext')}: ${esc(exName(nextWork.id))}</div>` : ''}`;
+    if (!s.timed) act = `<button class="gdone" data-act="gnext">${t('g_done_btn')}</button>`;   // fixed place, full width, above the bottom bar
   } else {
     const label = s.kind === 'ready' ? t('g_get_ready') : s.kind === 'switch' ? t('g_switch') : t('g_rest');
     const nx = s.kind === 'switch' ? G.steps[G.i + 1] : s.next ? { id: s.next.id } : G.steps[G.i + 1];
-    mid = `<div class="kind">${label}</div><div class="big">${left}</div><div class="unit">${t('sec')}</div>
-      ${nx && nx.id ? `<div class="unit">${t('g_next')}</div><div class="exn">${esc(exName(nx.id))}</div>` : ''}`;
+    mid = `<div class="kind">${label}</div><div class="num"><span class="big">${left}</span><span class="unit">${t('sec')}</span></div>${nx && nx.id ? upNext(nx.id) : ''}`;
   }
   const rd = s.kind === 'work' && s.rounds > 1 ? t('g_round', { a: s.round, b: s.rounds }) : '';
   const restAdj = s.kind === 'rest' ? `<div class="gadj"><button data-act="gadj" data-v="-15">−15 s</button><button data-act="gadj" data-v="15">+15 s</button></div>` : '';
-  el.innerHTML = `<div class="gtop"><div class="gbar"><i style="width:${pct}%"></i></div><div class="gt g4"><button class="gstopt" data-act="gstop">✕ ${t('g_stop')}</button><span>${rd}</span><span>${esc(t('type_' + G.r.ses.type))}</span>
+  // exercise counter "4/9" + one segment per exercise (a plain bar when there are very many)
+  const exN = s.kind === 'work' ? s.ex : nextWork ? nextWork.ex : G.exTotal, doneN = s.kind === 'work' ? s.ex - 1 : exN - 1, tot = G.exTotal;
+  const bar = tot && tot <= 40 ? `<div class="gseg">${Array.from({ length: tot }, (_, k) => `<i class="${k < doneN ? 'on' : k === exN - 1 && s.kind === 'work' ? 'cur' : ''}"></i>`).join('')}</div>`
+    : `<div class="gbar"><i style="width:${pct}%"></i></div>`;
+  el.innerHTML = `<div class="gtop">${bar}<div class="gt"><button class="gstopt" data-act="gstop">${IC.x}<span>${t('g_stop')}</span></button><span class="gmeta">${rd ? rd + ' · ' : ''}${esc(t('type_' + G.r.ses.type))}</span><span class="gcount" aria-label="${t('g_count', { a: exN, b: tot })}">${exN}/${tot}</span>
       <button class="gicon" data-act="gvoice" aria-label="${t('g_voice')}">${P.voice === false ? IC.mute : IC.sound}</button></div></div>
-    <div class="gmid">${mid}${restAdj}</div>
-    <div class="gbtns"><button data-act="gback" ${prevWork() < 0 ? 'disabled' : ''}>◀ ${t('g_back')}</button><button class="main" data-act="gpause">${G.paused ? t('g_resume') : t('g_pause')}</button><button data-act="gnext">${t('g_skip')} ▶</button></div>`;
+    <div class="gmid ${s.kind === 'work' ? 'gm-work' : 'gm-rest'}${G.flash ? ' gin' : ''}">${mid}${restAdj}</div>
+    <div class="gfoot${act ? ' two' : ''}">${act}<div class="gbtns"><button data-act="gback" ${prevWork() < 0 ? 'disabled' : ''}>${IC.left}<span>${t('g_back')}</span></button><button class="main" data-act="gpause">${G.paused ? t('g_resume') : t('g_pause')}</button><button data-act="gnext"><span>${t('g_skip')}</span>${IC.right}</button></div></div>`;
+  if (G.flash) {
+    G.flash = false; const f = document.createElement('div'); f.className = 'gflash'; f.setAttribute('aria-hidden', 'true'); el.appendChild(f);
+    setTimeout(() => f.remove(), 700);
+  }
+}
+/* v2.2: "Hierna" block during rest/ready/switch: still picture of the start position, name, equipment (what this athlete has) and first cue */
+function upNext(id) {
+  const e = EXMAP[id]; if (!e) return '';
+  const mine = e.eq.filter(x => (P.eq || []).includes(x)), eq = mine.length ? mine : e.eq;
+  return `<div class="upn"><span class="upl">${t('g_upnext')}</span><div class="upc">${ANIMV.svg(id, 'still thumb', { tight: true, pose: 0 })}
+    <div class="upt"><div class="exn">${esc(exName(id))}</div>${eqIcons(eq, true)}<div class="cue">${esc(e.cue[lang()][0])}</div></div></div></div>`;
 }
 function prevWork() { let j = G.i - 1; if (G.steps[G.i] && G.steps[G.i].kind !== 'work') { while (j >= 0 && G.steps[j].kind !== 'work') j--; } else { while (j >= 0 && G.steps[j].kind !== 'work') j--; } return j; }
 function finishGuided() {
@@ -839,14 +905,28 @@ document.addEventListener('click', ev => {
       P = d; UI.wz = null; saveAll(); UI.viewWeek = null; location.hash = '#week'; route(); break;
     }
     case 'wk': UI.viewWeek = Math.max(1, UI.viewWeek + +el.dataset.d); rerender(); break;
+    /* v2.2 */
+    case 'wzhint': { const c = $('#f-accept'); if (c) { c.scrollIntoView({ block: 'center' }); c.focus({ preventScroll: true }); } break; }
+    case 'todaystart': { UI.sess = { w: +el.dataset.w, key: el.dataset.k }; const r = resolveSession(); if (r) startGuided(r); break; }
+    case 'todaydone': case 'slotdone': {
+      closeSheet(); UI.sess = { w: +el.dataset.w, key: el.dataset.k }; const r = resolveSession();
+      if (r) openDone({ w: r.plan.w, key: r.slot.key, type: r.ses.type, est: r.ses.est, routine: null, isNew: false }); break;
+    }
+    case 'slotmenu': slotMenu(+el.dataset.w, el.dataset.k); break;
+    case 'weekmenu': {
+      const w = +el.dataset.w, tv = !!weekPlan(P, S, w).travel;
+      sheet(`<h3>${t('week_opts')} · ${t('week_n', { n: w })}</h3><div class="chips col">${chip('travel', `data-w="${w}"`, tv, t('travel_mode'))}</div><p class="small muted">${t('travel_on')}</p>`);
+      break;
+    }
+    case 'animplay': { const sv = el.querySelector('svg.anim'); if (!sv) break; const on = sv.classList.toggle('still'); el.setAttribute('aria-pressed', String(!on)); el.classList.toggle('on', !on); ANIMV.kick(); break; }
     case 'gow': UI.viewWeek = +el.dataset.w; location.hash = '#week'; break;
     case 'open': UI.sess = { w: +el.dataset.w, key: el.dataset.k }; if (location.hash === '#session') { route(); scrollTo(0, 0); } else location.hash = '#session'; break;
     case 'routine': UI.sess = { routine: el.dataset.r, type: UI.extraType }; location.hash = '#session'; break;
     case 'extratype': UI.extraType = el.dataset.v; rerender(); break;
-    case 'travel': { const w = +el.dataset.w, o = weekOv(w); o.travel = !(o.travel ?? P.travelAlways); saveAll(); rerender(); break; }
+    case 'travel': { const w = +el.dataset.w, o = weekOv(w); o.travel = !(o.travel ?? P.travelAlways); saveAll(); closeSheet(); rerender(); break; }
     case 'togrec': { const w = +el.dataset.w, o = weekOv(w); o.rec = !isRecovery(P, S, w); saveAll(); rerender(); break; }
-    case 'skip': { const w = +el.dataset.w, k = el.dataset.k, o = weekOv(w); (o.skips = o.skips || {})[k] = true; saveAll(); rerender(); icuSyncSlot(w, k); break; }
-    case 'unskip': { const w = +el.dataset.w, k = el.dataset.k, o = weekOv(w); if (o.skips) delete o.skips[k]; saveAll(); rerender(); icuSyncSlot(w, k); break; }
+    case 'skip': { const w = +el.dataset.w, k = el.dataset.k, o = weekOv(w); (o.skips = o.skips || {})[k] = true; saveAll(); closeSheet(); rerender(); icuSyncSlot(w, k); break; }
+    case 'unskip': { const w = +el.dataset.w, k = el.dataset.k, o = weekOv(w); if (o.skips) delete o.skips[k]; saveAll(); closeSheet(); rerender(); icuSyncSlot(w, k); break; }
     case 'movesheet': {
       const w = +el.dataset.w, k = el.dataset.k, plan = weekPlan(P, S, w), slot = plan.slots.find(x => x.key === k); if (!slot) break;
       const o = weekOv(w), moved = o.moves && o.moves[k] != null;
@@ -875,7 +955,7 @@ document.addEventListener('click', ev => {
     }
     case 'groupoff': { const o = weekOv(UI.groupW); o.groupOff = !o.groupOff; saveAll(); closeSheet(); rerender(); break; }
     case 'groupfocus': { const o = weekOv(UI.groupW); const f = [...(o.groupFocus || P.group.focus)]; const i = f.indexOf(el.dataset.v); if (i >= 0) f.splice(i, 1); else f.push(el.dataset.v); o.groupFocus = f; saveAll(); el.setAttribute('aria-pressed', String(i < 0)); rerender(); break; }
-    case 'gotest': ev.preventDefault(); UI.testW = +el.dataset.w || UI.testW; location.hash = '#progress'; break;
+    case 'gotest': ev.preventDefault(); UI.testW = +el.dataset.w || UI.testW; UI.testOpen = true; if (location.hash === '#progress') rerender(); else location.hash = '#progress'; break;
     case 'acceptlvl': P.level = S.suggest; P.adj = {}; S.suggest = null; saveAll(); rerender(); break;
     case 'declinelvl': S.suggest = null; saveAll(); rerender(); break;
     case 'dur': { const c = UI.sess; if (c.routine) c.dur = +el.dataset.v; else { const o = weekOv(c.w); (o.dur = o.dur || {})[c.key] = +el.dataset.v; saveAll(); } rerender(); break; }
@@ -957,7 +1037,7 @@ document.addEventListener('click', ev => {
       UI.restoreCand = r;
       if (!P) { doRestore(); break; }
       sheet(`<h3>${t('rs_q_title')}</h3><p>${t('rs_q', { d: r.at ? DN.fmtY(DN.parse(r.at)) : '?', n: r.profile.name ? ` (${esc(r.profile.name)})` : '' })}</p>
-        <div class="row"><button class="btn" data-act="restorego">${t('rs_yes')}</button><button class="btn quiet" data-act="closesheet">${t('rs_no')}</button></div>`);
+        <div class="sheetact"><div class="row"><button class="btn primary" data-act="restorego">${t('rs_yes')}</button><button class="btn quiet" data-act="closesheet">${t('rs_no')}</button></div></div>`);
       break;
     }
     case 'restorego': closeSheet(); doRestore(); break;
@@ -1002,6 +1082,8 @@ document.addEventListener('input', ev => {
     const m = $('#tmsg'); if (m) m.textContent = l ? t('test_saved', { l: `${l} · ${t('lvl_' + l)}` }) : t('saved');
   }
 });
+/* v2.2: remember whether the test form is open (a re-render keeps it as the athlete left it) */
+document.addEventListener('toggle', ev => { if (ev.target && ev.target.id === 'testd') UI.testOpen = ev.target.open; }, true);
 document.addEventListener('change', ev => { if (ev.target.dataset && ev.target.dataset.tk && !P) rerender(); if (ev.target.dataset && ev.target.dataset.tk && P && location.hash === '#progress') rerender(); });
 
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; if ((location.hash || '#week') === '#week') rerender(); });

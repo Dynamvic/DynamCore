@@ -24,19 +24,21 @@ function openDone(ctx) {
   UI.doneCtx = { ...ctx, rpe };
   const hasKey = !!(P.icuKey && String(P.icuKey).trim());
   const linked = log && log.icu ? `<p class="small muted">${t('dn_linked', { d: DN.fmt(log.icu.at) })}${log.icu.mode === 'watch' ? ' ' + t('dn_linked_watch') : ''}</p>` : '';
-  sheet(`${ctx.finished ? `<p class="eyebrow ok">✓ ${t('g_finished')}</p>` : ''}<h3>${log ? t('dn_edit') : t('dn_title')} · ${esc(typeLabel(ctx.type))}</h3>
+  sheet(`${ctx.finished ? `<p class="eyebrow ok">${IC.check} ${t('g_finished')}</p>` : ''}<h3>${log ? t('dn_edit') : t('dn_title')} · ${esc(typeLabel(ctx.type))}</h3>
     <div class="dn">
-      <label class="fld"><span class="lbl">${t('dn_date')}</span><input type="date" id="dn-date" value="${DN.iso(day)}" max="${DN.iso(td)}"></label>
+      <div class="fld"><span class="lbl" id="dn-dl">${t('dn_date')}</span><div class="dnd"><b id="dn-dtxt">${DN.fmtY(day)}</b>
+        <label class="dnchg">${t('dn_change')}<input type="date" id="dn-date" value="${DN.iso(day)}" max="${DN.iso(td)}" aria-labelledby="dn-dl"></label></div></div>
       <div class="fld"><span class="lbl">${t('dn_rpe')}</span><small class="muted">${t('rpe_hint', { r: RPE_TARGET[ctx.type] || '' })}</small>
         <div class="rpe">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(i => `<button class="rpeb" data-act="dnrpe" data-v="${i}" aria-pressed="${rpe === i}"><b>${i}</b><small>${t('rpe_labels')[i]}</small></button>`).join('')}</div></div>
       <label class="fld"><span class="lbl">${t('dn_dur')}</span><input id="dn-dur" inputmode="numeric" value="${dur}"></label>
       <label class="fld"><span class="lbl">${t('dn_note')}</span><textarea id="dn-note" class="note" placeholder="${t('dn_note_ph')}">${esc(log && log.note || '')}</textarea></label>
       ${linked}
-      <div class="row"><button class="btn" data-act="dnsave" data-send="${hasKey && P.icuAuto ? 1 : 0}">${hasKey && P.icuAuto ? t('dn_save_send') : t('dn_save')}</button>
-        ${hasKey && !P.icuAuto ? `<button class="btn ghost" data-act="dnsave" data-send="1">${t('dn_save_send')}</button>` : ''}</div>
-      <p class="msg" id="dn-msg" aria-live="polite"></p>
+      <div class="sheetact"><p class="msg" id="dn-msg" aria-live="polite"></p><div class="row"><button class="btn big" data-act="dnsave" data-send="${hasKey && P.icuAuto ? 1 : 0}">${hasKey && P.icuAuto ? t('dn_save_send') : t('dn_save')}</button>
+        ${hasKey && !P.icuAuto ? `<button class="btn ghost" data-act="dnsave" data-send="1">${t('dn_save_send')}</button>` : ''}</div></div>
     </div>`);
 }
+/* v2.2: the date is shown as DD-MM-YYYY text; the real date field lies invisibly over "wijzig" (opens the iPhone date picker) */
+document.addEventListener('input', ev => { if (ev.target && ev.target.id === 'dn-date') { const o = $('#dn-dtxt'); if (o && ev.target.value) o.textContent = DN.fmtY(DN.parse(ev.target.value)); } });
 async function saveDone(send) {
   const c = UI.doneCtx, m = $('#dn-msg');
   if (!c.rpe) { m.className = 'msg bad'; m.textContent = t('dn_need_rpe'); return; }
@@ -44,6 +46,7 @@ async function saveDone(send) {
   const dur = Math.max(1, Math.min(300, parseInt($('#dn-dur').value, 10) || c.est || 30));
   const note = $('#dn-note').value.trim();
   let log = c.isNew ? null : findLog(c.w, c.key), msg = '';
+  const wasNew = !log;   // v2.3: first save of this session (not an edit) -> done feedback below
   if (!log) {
     log = { w: String(c.key).startsWith('R-') ? planWeekOf(P, d) : c.w, key: c.key, type: c.type, d, rpe: c.rpe, est: c.est, dur, note, prevAdj: (P.adj || {})[c.type] || 0 };
     const snap = sessionSnapshot(c); if (snap) log.ses = snap;   // v2.1: keep what was actually done
@@ -69,6 +72,16 @@ async function saveDone(send) {
   UI.doneCtx.isNew = false; UI.doneCtx.w = log.w; UI.doneCtx.key = log.key;
   // v2.0: close the sheet after saving; the result (and the Intervals.icu result) is shown at the bottom of the screen
   closeSheet(); rerenderBehindSheet();
+  // v2.3: feedback for a newly done plan session: the check mark pops once and the message counts the week
+  if (wasNew && !String(log.key).startsWith('R-')) {
+    try {
+      const plan = weekPlan(P, S, log.w), live = plan.slots.filter(s => !s.skipped);
+      const a = live.filter(s => isDone(log.w, s.key)).length;
+      if (a && live.length) msg = t('done_prog', { a, b: live.length }) + (msg ? ' ' + msg : '');
+      const st = document.querySelector(`.slot [data-k="${log.key}"] .st.ok`);
+      if (st) st.classList.add('pop');   // the pop animation is off with reduced motion (CSS)
+    } catch (e) { /* feedback only; never block saving */ }
+  }
   const pre = (msg || t('saved')) + ' ';
   if (send || (log.icu && P.icuKey)) {
     toast(pre + t('dn_sending'));
@@ -140,7 +153,7 @@ async function icuUndo(log) {
 function doneBlock(w, key, type) {
   const log = findLog(w, key); if (!log) return '';
   const hasKey = !!(P.icuKey && String(P.icuKey).trim());
-  return `<section class="card donebox"><div class="row between"><b>✓ ${t('status_done')} · ${DN.fmt(log.d)}</b><span class="pill">RPE ${log.rpe ?? '–'}</span></div>
+  return `<section class="card donebox"><div class="row between"><b>${IC.check} ${t('status_done')} · ${DN.fmt(log.d)}</b><span class="pill">RPE ${log.rpe ?? '–'}</span></div>
     <p class="small muted">${t('dn_dur_s')}: ${log.dur || log.est || '–'} ${t('min')}${log.icu ? ' · ' + t('dn_linked', { d: DN.fmt(log.icu.at) }) : ''}</p>
     ${log.note ? `<p class="note-view">${esc(log.note)}</p>` : ''}
     <div class="row"><button class="btn quiet" data-act="dnedit" data-w="${w}" data-k="${esc(key)}" data-t="${type}">${t('dn_edit_btn')}</button>
